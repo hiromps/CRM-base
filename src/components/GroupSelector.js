@@ -5,11 +5,14 @@ export function GroupSelector({
     currentGroupId, 
     onGroupChange, 
     joinGroup, 
-    leaveGroup 
+    leaveGroup,
+    verifyWorkspacePassword 
 }) {
     const [showJoinForm, setShowJoinForm] = useState(false);
     const [newGroupId, setNewGroupId] = useState('');
+    const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
 
     const memberGroups = userProfile?.memberOfGroups || [];
 
@@ -18,12 +21,25 @@ export function GroupSelector({
         if (!newGroupId.trim()) return;
 
         setIsLoading(true);
+        setPasswordError('');
+
         try {
+            // パスワード確認
+            const isPasswordValid = await verifyWorkspacePassword(newGroupId.trim(), password);
+            
+            if (!isPasswordValid) {
+                setPasswordError('あいことばが正しくありません。');
+                setIsLoading(false);
+                return;
+            }
+
             await joinGroup(newGroupId.trim());
             setNewGroupId('');
+            setPassword('');
             setShowJoinForm(false);
         } catch (error) {
             console.error('Error joining group:', error);
+            setPasswordError('参加に失敗しました。ワークスペース名を確認してください。');
         } finally {
             setIsLoading(false);
         }
@@ -145,6 +161,32 @@ export function GroupSelector({
                                     disabled={isLoading}
                                 />
                             </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    あいことば（必要な場合のみ）
+                                </label>
+                                <input
+                                    type="password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="あいことばを入力..."
+                                    className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-600 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                    disabled={isLoading}
+                                />
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    ワークスペースがパスワード保護されている場合は入力してください
+                                </p>
+                            </div>
+
+                            {passwordError && (
+                                <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                                    <p className="text-sm text-red-800 dark:text-red-200 flex items-center">
+                                        <span className="mr-2">❌</span>
+                                        {passwordError}
+                                    </p>
+                                </div>
+                            )}
                             
                             <div className="flex gap-2">
                                 <button
@@ -166,7 +208,12 @@ export function GroupSelector({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setShowJoinForm(false)}
+                                    onClick={() => {
+                                        setShowJoinForm(false);
+                                        setPasswordError('');
+                                        setPassword('');
+                                        setNewGroupId('');
+                                    }}
                                     className="px-6 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 rounded-lg transition-all duration-150 ease-in-out"
                                 >
                                     キャンセル
@@ -178,7 +225,7 @@ export function GroupSelector({
                             <p className="text-xs text-yellow-800 dark:text-yellow-200 flex items-start">
                                 <span className="mr-2 mt-0.5">💡</span>
                                 <span>
-                                    <strong>ヒント:</strong> ワークスペース名は、チームリーダーや管理者から教えてもらってください。
+                                    <strong>ヒント:</strong> ワークスペース名とあいことば（設定されている場合）は、チームリーダーや管理者から教えてもらってください。
                                     参加後は、そのチームの連絡先を閲覧・編集できるようになります。
                                 </span>
                             </p>

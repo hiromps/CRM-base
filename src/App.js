@@ -2,10 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useFirebase } from './hooks/useFirebase';
 import { useUserProfile } from './hooks/useUserProfile';
+import { useWorkspaceSettings } from './hooks/useWorkspaceSettings';
 import { useContacts } from './hooks/useContacts';
 import { LoginForm } from './components/LoginForm';
 import { Header } from './components/Header';
 import { GroupSelector } from './components/GroupSelector';
+import { WorkspaceSettings } from './components/WorkspaceSettings';
 import { SearchAndFilter } from './components/SearchAndFilter';
 import { ContactList } from './components/ContactList';
 import { ContactModal } from './components/ContactModal';
@@ -40,6 +42,16 @@ function App() {
         updateProfile,
         setProfileError
     } = useUserProfile({ db, user, userId, isAuthReady });
+    
+    const {
+        workspaceSettings,
+        isSettingsLoading,
+        settingsError,
+        isWorkspaceAdmin,
+        updateWorkspaceSettings,
+        verifyWorkspacePassword,
+        setSettingsError
+    } = useWorkspaceSettings({ db, userId, currentGroupId, user });
     
     const { 
         contacts, 
@@ -130,11 +142,11 @@ function App() {
                 onSignOut={handleSignOut}
             />
 
-            {(error || profileError) && (
+            {(error || profileError || settingsError) && (
                 <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-md relative mb-4 shadow-md" role="alert">
-                    {error || profileError}
-                    <button 
-                        onClick={() => { setError(null); setProfileError(null); }}
+                    {error || profileError || settingsError}
+                    <button
+                        onClick={() => { setError(null); setProfileError(null); setSettingsError(null); }}
                         className="absolute top-0 bottom-0 right-0 px-4 py-3"
                     >
                         ×
@@ -149,8 +161,17 @@ function App() {
                     onGroupChange={switchGroup}
                     joinGroup={joinGroup}
                     leaveGroup={leaveGroup}
+                    verifyWorkspacePassword={verifyWorkspacePassword}
                 />
             )}
+
+            <WorkspaceSettings
+                currentGroupId={currentGroupId}
+                workspaceSettings={workspaceSettings}
+                isWorkspaceAdmin={isWorkspaceAdmin}
+                updateWorkspaceSettings={updateWorkspaceSettings}
+                isSettingsLoading={isSettingsLoading}
+            />
 
             {hasGroupAccess ? (
                 <>
