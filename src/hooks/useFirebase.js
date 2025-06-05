@@ -26,7 +26,8 @@ export function useFirebase() {
     // Auth State
     useEffect(() => {
         try {
-            if (typeof setLogLevel === 'function') {
+            // 本番環境ではログレベルを無効化
+            if (typeof setLogLevel === 'function' && process.env.NODE_ENV === 'development') {
                 setLogLevel('debug');
             }
 

@@ -63,6 +63,12 @@ export function LoginForm({ auth, onLoginSuccess, error, setError }) {
                 case 'auth/invalid-email':
                     setError('有効なメールアドレスを入力してください。');
                     break;
+                case 'auth/too-many-requests':
+                    setError('ログイン試行回数が多すぎます。しばらく時間をおいてから再試行してください。');
+                    break;
+                case 'auth/network-request-failed':
+                    setError('ネットワークエラーが発生しました。インターネット接続を確認してください。');
+                    break;
                 default:
                     setError(`認証エラー: ${error.message}`);
             }

@@ -93,7 +93,7 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
         // 匿名ユーザーの場合はローカルストレージを使用
         if (user?.isAnonymous || !db) {
-            console.log('Using local profile for anonymous user');
+            // console.log('Using local profile for anonymous user');
             const localProfile = loadLocalProfile() || createLocalProfile();
             setUserProfile(localProfile);
             setIsProfileLoading(false);
@@ -122,14 +122,12 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                 setUserProfile(userDoc.data());
             }
         } catch (error) {
-            console.error('Error initializing user profile:', error);
-            // Firestoreエラーの場合はローカルプロファイルにフォールバック
-            console.log('Falling back to local profile due to Firestore error');
+            console.error('Error creating user profile:', error);
+            // エラーの場合はローカルプロファイルにフォールバック
             const localProfile = loadLocalProfile() || createLocalProfile();
             setUserProfile(localProfile);
-            setProfileError(null); // エラーをクリア
-        } finally {
             setIsProfileLoading(false);
+            setProfileError(null); // エラーをクリア
         }
     };
 
@@ -163,7 +161,6 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             (error) => {
                 console.error('Error listening to user profile:', error);
                 // エラーの場合はローカルプロファイルにフォールバック
-                console.log('Falling back to local profile due to listener error');
                 const localProfile = loadLocalProfile() || createLocalProfile();
                 setUserProfile(localProfile);
                 setIsProfileLoading(false);

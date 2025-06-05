@@ -93,21 +93,21 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
     // Fetch Contacts
     useEffect(() => {
         if (!isAuthReady || !userId || !currentGroupId) {
-            console.log("Firestore listener prerequisites not met:", { isAuthReady, userId, currentGroupId });
+            // console.log("Firestore listener prerequisites not met:", { isAuthReady, userId, currentGroupId });
             setIsLoading(false);
             return;
         }
 
         // ローカルモードの場合は常にローカルストレージを使用
         if (isLocalMode) {
-            console.log("Using local storage mode for anonymous user or local profile");
+            // console.log("Using local storage mode for anonymous user or local profile");
             loadContactsFromLocalStorage();
             return;
         }
 
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
-            console.log("No access to group:", currentGroupId);
+            // console.log("No access to group:", currentGroupId);
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
@@ -116,7 +116,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         
         setIsLoading(true);
         setError(null);
-        console.log(`Setting up Firestore listener for group: ${currentGroupId}`);
+        // console.log(`Setting up Firestore listener for group: ${currentGroupId}`);
 
         const q = query(collection(db, contactsCollectionPath));
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -127,7 +127,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             contactsData.sort((a, b) => a.name.localeCompare(b.name));
             setContacts(contactsData);
             setIsLoading(false);
-            console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
+            // console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
         }, (err) => {
             console.error("Error fetching contacts:", err);
             if (err.code === 'permission-denied') {
@@ -136,7 +136,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 setError(`顧客データの取得に失敗しました: ${err.message}`);
             }
             // Fallback to local storage on Firestore error
-            console.log("Falling back to local storage due to Firestore error");
+            // console.log("Falling back to local storage due to Firestore error");
             loadContactsFromLocalStorage();
         });
 
