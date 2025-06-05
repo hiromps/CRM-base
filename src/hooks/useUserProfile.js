@@ -116,10 +116,23 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                     isAnonymous: false
                 };
 
+                // プロファイルを作成してから状態を更新
                 await setDoc(userDocRef, defaultProfile);
                 setUserProfile(defaultProfile);
+                console.log('New user profile created successfully');
             } else {
-                setUserProfile(userDoc.data());
+                const profileData = userDoc.data();
+                // 既存ユーザーでも個人グループが存在しない場合は追加
+                if (!profileData.memberOfGroups?.includes(`personal_${userId}`)) {
+                    const updatedGroups = [...(profileData.memberOfGroups || []), `personal_${userId}`];
+                    await updateDoc(userDocRef, {
+                        memberOfGroups: updatedGroups,
+                        updatedAt: Timestamp.now()
+                    });
+                    setUserProfile({ ...profileData, memberOfGroups: updatedGroups });
+                } else {
+                    setUserProfile(profileData);
+                }
             }
         } catch (error) {
             console.error('Error creating user profile:', error);

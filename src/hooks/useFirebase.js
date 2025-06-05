@@ -31,7 +31,7 @@ export function useFirebase() {
                 setLogLevel('debug');
             }
 
-            const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
                 if (currentUser) {
                     setUser(currentUser);
                     setUserId(currentUser.uid);

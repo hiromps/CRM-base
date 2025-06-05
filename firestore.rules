@@ -43,19 +43,29 @@ service cloud.firestore {
     match /groups/{groupId}/contacts/{contactId} {
       // 読み取り・書き込み条件:
       // 1. 認証済みであること
-      // 2. ユーザーのプロファイルドキュメントが存在すること
-      // 3. ユーザーがこの groupId のメンバーであること (users/{userId}.memberOfGroups に groupId が含まれている)
-      allow read, write: if request.auth != null &&
-                     exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberOfGroups.hasAny([groupId]);
+      // 2. 個人グループ（personal_*）の場合は、グループIDがユーザーIDと一致すること
+      // 3. チームグループの場合は、ユーザーのプロファイルドキュメントが存在し、メンバーであること
+      allow read, write: if request.auth != null && (
+        // 個人グループの場合: personal_{userId} 形式で、ユーザーIDが一致する
+        (groupId.matches('personal_.*') && groupId == 'personal_' + request.auth.uid) ||
+        // チームグループの場合: ユーザープロファイルが存在し、メンバーリストに含まれている
+        (!groupId.matches('personal_.*') && 
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberOfGroups.hasAny([groupId]))
+      );
     }
 
     // グループメタデータ (オプション)
     match /groups_metadata/{groupId} {
-      // 読み取り: グループメンバーなら誰でも読める
-      allow read: if request.auth != null &&
-                     exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberOfGroups.hasAny([groupId]);
+      // 読み取り: 個人グループまたはチームグループのメンバー
+      allow read: if request.auth != null && (
+        // 個人グループの場合
+        (groupId.matches('personal_.*') && groupId == 'personal_' + request.auth.uid) ||
+        // チームグループの場合
+        (!groupId.matches('personal_.*') && 
+         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberOfGroups.hasAny([groupId]))
+      );
       // 書き込み: グループ管理者のみ許可
       allow write: if request.auth != null &&
                       resource.data.createdBy == request.auth.uid;

@@ -105,6 +105,13 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
+        // 認証済みユーザーの場合、プロファイル読み込み完了を待つ
+        if (!user?.isAnonymous && !userProfile) {
+            // プロファイルがまだ読み込まれていない場合は待機
+            setIsLoading(true);
+            return;
+        }
+
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
             // console.log("No access to group:", currentGroupId);
@@ -141,7 +148,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         });
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey]);
+    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, userProfile, user?.isAnonymous]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
