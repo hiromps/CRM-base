@@ -67,9 +67,9 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
             return;
         }
 
-        // If using demo mode (no Firebase connection), use local storage
-        if (userId === 'demo-user' || !db || !contactsCollectionPath) {
-            console.log("Using demo mode with local storage");
+        // If using demo mode (no Firebase connection or anonymous user without proper setup), use local storage
+        if (!db || !contactsCollectionPath) {
+            console.log("Using demo mode with local storage - no Firebase connection");
             loadContactsFromLocalStorage();
             return;
         }
@@ -91,7 +91,9 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
         }, (err) => {
             console.error("Error fetching contacts:", err);
             setError(`顧客データの取得に失敗しました: ${err.message}`);
-            setIsLoading(false);
+            // Fallback to local storage on Firestore error
+            console.log("Falling back to local storage due to Firestore error");
+            loadContactsFromLocalStorage();
         });
 
         return () => unsubscribe();
@@ -99,7 +101,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
-        if (userId === 'demo-user') {
+        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const newContact = {
                 id: 'demo-' + Date.now(),
@@ -114,8 +116,8 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
             return;
         }
 
-        if (!db || !userId || !contactsCollectionPath) {
-            setError("データベース接続がありません。");
+        if (!userId) {
+            setError("ユーザー認証が必要です。");
             return;
         }
         try {
@@ -132,7 +134,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
     };
 
     const handleUpdateContact = async (contactId, contactData) => {
-        if (userId === 'demo-user') {
+        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const updatedContacts = contacts.map(contact => 
                 contact.id === contactId 
@@ -144,8 +146,8 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
             return;
         }
 
-        if (!db || !userId || !contactsCollectionPath) {
-            setError("データベース接続がありません。");
+        if (!userId) {
+            setError("ユーザー認証が必要です。");
             return;
         }
         try {
@@ -162,7 +164,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
     };
 
     const handleDeleteContact = async (contactId) => {
-        if (userId === 'demo-user') {
+        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const updatedContacts = contacts.filter(contact => contact.id !== contactId);
             setContacts(updatedContacts);
@@ -170,10 +172,6 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
             return;
         }
 
-        if (!db || !contactsCollectionPath) {
-            setError("データベース接続がありません。");
-            return;
-        }
         try {
             await deleteDoc(doc(db, contactsCollectionPath, contactId));
         } catch (err) {

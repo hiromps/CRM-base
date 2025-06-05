@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useFirebase } from './hooks/useFirebase';
 import { useContacts } from './hooks/useContacts';
+import { LoginForm } from './components/LoginForm';
 import { Header } from './components/Header';
 import { SearchAndFilter } from './components/SearchAndFilter';
 import { ContactList } from './components/ContactList';
@@ -14,7 +15,7 @@ function App() {
     const [selectedGroup, setSelectedGroup] = useState('');
     
     const [theme, setTheme] = useTheme();
-    const { db, userId, isAuthReady, error, contactsCollectionPath, setError } = useFirebase();
+    const { db, auth, user, userId, isAuthReady, error, contactsCollectionPath, setError, handleSignOut } = useFirebase();
     const { 
         contacts, 
         isLoading, 
@@ -23,7 +24,7 @@ function App() {
         handleUpdateContact, 
         handleDeleteContact 
     } = useContacts({ db, userId, isAuthReady, contactsCollectionPath, setError });
-
+    
     const openAddModal = () => {
         setCurrentContact(null);
         setShowModal(true);
@@ -52,7 +53,8 @@ function App() {
         });
     }, [contacts, searchTerm, selectedGroup]);
 
-    if (!isAuthReady && isLoading) {
+    // 認証が準備できていない場合のローディング画面
+    if (!isAuthReady) {
         return (
             <div className="flex justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
                 認証情報を読み込み中...
@@ -60,9 +62,27 @@ function App() {
         );
     }
 
+    // ユーザーがログインしていない場合はログイン画面を表示
+    if (!userId) {
+        return (
+            <LoginForm 
+                auth={auth} 
+                onLoginSuccess={() => {}} 
+                error={error} 
+                setError={setError} 
+            />
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 p-4 md:p-8 font-sans transition-colors duration-300">
-            <Header userId={userId} theme={theme} setTheme={setTheme} />
+            <Header 
+                user={user} 
+                userId={userId} 
+                theme={theme} 
+                setTheme={setTheme} 
+                onSignOut={handleSignOut}
+            />
 
             {error && (
                 <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-md relative mb-4 shadow-md" role="alert">
