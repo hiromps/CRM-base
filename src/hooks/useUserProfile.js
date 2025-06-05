@@ -13,9 +13,69 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
     const [isProfileLoading, setIsProfileLoading] = useState(true);
     const [profileError, setProfileError] = useState(null);
 
+    // 匿名ユーザー用のローカルプロファイル管理
+    const getLocalStorageKey = () => `userProfile-${userId}`;
+
+    const createLocalProfile = () => {
+        const localProfile = {
+            uid: userId,
+            email: user?.email || null,
+            displayName: user?.displayName || user?.email?.split('@')[0] || 'ゲストユーザー',
+            memberOfGroups: [`personal_${userId}`],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            isAnonymous: user?.isAnonymous || false,
+            isLocalProfile: true // ローカルプロファイルフラグ
+        };
+        
+        try {
+            localStorage.setItem(getLocalStorageKey(), JSON.stringify(localProfile));
+        } catch (error) {
+            console.error('Error saving local profile:', error);
+        }
+        
+        return localProfile;
+    };
+
+    const loadLocalProfile = () => {
+        try {
+            const saved = localStorage.getItem(getLocalStorageKey());
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (error) {
+            console.error('Error loading local profile:', error);
+        }
+        return null;
+    };
+
+    const updateLocalProfile = (updates) => {
+        try {
+            const current = loadLocalProfile() || createLocalProfile();
+            const updated = {
+                ...current,
+                ...updates,
+                updatedAt: new Date()
+            };
+            localStorage.setItem(getLocalStorageKey(), JSON.stringify(updated));
+            setUserProfile(updated);
+        } catch (error) {
+            console.error('Error updating local profile:', error);
+        }
+    };
+
     // ユーザープロファイルの初期化
     const initializeUserProfile = async () => {
-        if (!db || !userId) return;
+        if (!userId) return;
+
+        // 匿名ユーザーの場合はローカルストレージを使用
+        if (user?.isAnonymous || !db) {
+            console.log('Using local profile for anonymous user');
+            const localProfile = loadLocalProfile() || createLocalProfile();
+            setUserProfile(localProfile);
+            setIsProfileLoading(false);
+            return;
+        }
 
         try {
             const userDocRef = doc(db, 'users', userId);
@@ -30,7 +90,7 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                     memberOfGroups: [`personal_${userId}`], // 個人用グループを自動作成
                     createdAt: Timestamp.now(),
                     updatedAt: Timestamp.now(),
-                    isAnonymous: user?.isAnonymous || false
+                    isAnonymous: false
                 };
 
                 await setDoc(userDocRef, defaultProfile);
@@ -40,7 +100,11 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             }
         } catch (error) {
             console.error('Error initializing user profile:', error);
-            setProfileError(`プロファイルの初期化に失敗しました: ${error.message}`);
+            // Firestoreエラーの場合はローカルプロファイルにフォールバック
+            console.log('Falling back to local profile due to Firestore error');
+            const localProfile = loadLocalProfile() || createLocalProfile();
+            setUserProfile(localProfile);
+            setProfileError(null); // エラーをクリア
         } finally {
             setIsProfileLoading(false);
         }
@@ -48,13 +112,19 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
     // ユーザープロファイルの監視
     useEffect(() => {
-        if (!isAuthReady || !userId || !db) {
+        if (!isAuthReady || !userId) {
             setIsProfileLoading(false);
             return;
         }
 
         setIsProfileLoading(true);
         setProfileError(null);
+
+        // 匿名ユーザーの場合はローカルプロファイルのみ使用
+        if (user?.isAnonymous || !db) {
+            initializeUserProfile();
+            return;
+        }
 
         const userDocRef = doc(db, 'users', userId);
         const unsubscribe = onSnapshot(userDocRef, 
@@ -69,17 +139,31 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             },
             (error) => {
                 console.error('Error listening to user profile:', error);
-                setProfileError(`プロファイルの取得に失敗しました: ${error.message}`);
+                // エラーの場合はローカルプロファイルにフォールバック
+                console.log('Falling back to local profile due to listener error');
+                const localProfile = loadLocalProfile() || createLocalProfile();
+                setUserProfile(localProfile);
                 setIsProfileLoading(false);
+                setProfileError(null); // エラーをクリア
             }
         );
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady]);
+    }, [db, userId, isAuthReady, user?.isAnonymous]);
 
     // グループに参加
     const joinGroup = async (groupId) => {
-        if (!db || !userId || !userProfile) return;
+        if (!userId || !userProfile) return;
+
+        // ローカルプロファイルの場合
+        if (userProfile.isLocalProfile || user?.isAnonymous || !db) {
+            const currentGroups = userProfile.memberOfGroups || [];
+            if (!currentGroups.includes(groupId)) {
+                const updatedGroups = [...currentGroups, groupId];
+                updateLocalProfile({ memberOfGroups: updatedGroups });
+            }
+            return;
+        }
 
         try {
             const userDocRef = doc(db, 'users', userId);
@@ -100,7 +184,15 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
     // グループから脱退
     const leaveGroup = async (groupId) => {
-        if (!db || !userId || !userProfile) return;
+        if (!userId || !userProfile) return;
+
+        // ローカルプロファイルの場合
+        if (userProfile.isLocalProfile || user?.isAnonymous || !db) {
+            const currentGroups = userProfile.memberOfGroups || [];
+            const updatedGroups = currentGroups.filter(id => id !== groupId);
+            updateLocalProfile({ memberOfGroups: updatedGroups });
+            return;
+        }
 
         try {
             const userDocRef = doc(db, 'users', userId);
@@ -119,7 +211,13 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
     // プロファイル更新
     const updateProfile = async (updates) => {
-        if (!db || !userId) return;
+        if (!userId) return;
+
+        // ローカルプロファイルの場合
+        if (userProfile?.isLocalProfile || user?.isAnonymous || !db) {
+            updateLocalProfile(updates);
+            return;
+        }
 
         try {
             const userDocRef = doc(db, 'users', userId);

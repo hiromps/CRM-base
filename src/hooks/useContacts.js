@@ -10,7 +10,7 @@ import {
     Timestamp
 } from 'firebase/firestore';
 
-export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, setError }) {
+export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError }) {
     const [contacts, setContacts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -19,6 +19,11 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         if (!currentGroupId) return 'demo-contacts';
         return `contacts-${currentGroupId}`;
     }, [currentGroupId]);
+
+    // 匿名ユーザーかローカルプロファイルかを判定
+    const isLocalMode = useMemo(() => {
+        return user?.isAnonymous || userProfile?.isLocalProfile || !db || !contactsCollectionPath;
+    }, [user?.isAnonymous, userProfile?.isLocalProfile, db, contactsCollectionPath]);
 
     // Local storage functions for demo mode
     const loadContactsFromLocalStorage = () => {
@@ -68,11 +73,17 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         }
     };
 
-    // グループアクセス権限チェック
+    // グループアクセス権限チェック（匿名ユーザーは常にアクセス可能）
     const hasGroupAccess = useMemo(() => {
         if (!userProfile || !currentGroupId) return false;
+        
+        // 匿名ユーザーまたはローカルプロファイルの場合は常にアクセス可能
+        if (user?.isAnonymous || userProfile.isLocalProfile) {
+            return true;
+        }
+        
         return userProfile.memberOfGroups?.includes(currentGroupId) || false;
-    }, [userProfile, currentGroupId]);
+    }, [userProfile, currentGroupId, user?.isAnonymous]);
 
     // Fetch Contacts
     useEffect(() => {
@@ -82,19 +93,19 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
-        // グループアクセス権限チェック
+        // ローカルモードの場合は常にローカルストレージを使用
+        if (isLocalMode) {
+            console.log("Using local storage mode for anonymous user or local profile");
+            loadContactsFromLocalStorage();
+            return;
+        }
+
+        // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
             console.log("No access to group:", currentGroupId);
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
-            return;
-        }
-
-        // If using demo mode (no Firebase connection), use local storage
-        if (!db || !contactsCollectionPath) {
-            console.log("Using demo mode with local storage - no Firebase connection");
-            loadContactsFromLocalStorage();
             return;
         }
         
@@ -125,16 +136,18 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         });
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, setError, localStorageKey]);
+    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
-        if (!hasGroupAccess) {
-            setError("このグループへの書き込み権限がありません。");
-            return;
-        }
+        // ローカルモードまたは権限チェック
+        if (isLocalMode || !hasGroupAccess) {
+            // ローカルモードの場合は常に許可、認証済みユーザーは権限チェック
+            if (!isLocalMode && !hasGroupAccess) {
+                setError("このグループへの書き込み権限がありません。");
+                return;
+            }
 
-        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const newContact = {
                 id: `demo-${currentGroupId}-${Date.now()}`,
@@ -172,12 +185,13 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
     };
 
     const handleUpdateContact = async (contactId, contactData) => {
-        if (!hasGroupAccess) {
-            setError("このグループへの書き込み権限がありません。");
-            return;
-        }
+        // ローカルモードまたは権限チェック
+        if (isLocalMode || !hasGroupAccess) {
+            if (!isLocalMode && !hasGroupAccess) {
+                setError("このグループへの書き込み権限がありません。");
+                return;
+            }
 
-        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const updatedContacts = contacts.map(contact => 
                 contact.id === contactId 
@@ -212,12 +226,13 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
     };
 
     const handleDeleteContact = async (contactId) => {
-        if (!hasGroupAccess) {
-            setError("このグループへの書き込み権限がありません。");
-            return;
-        }
+        // ローカルモードまたは権限チェック
+        if (isLocalMode || !hasGroupAccess) {
+            if (!isLocalMode && !hasGroupAccess) {
+                setError("このグループへの書き込み権限がありません。");
+                return;
+            }
 
-        if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const updatedContacts = contacts.filter(contact => contact.id !== contactId);
             setContacts(updatedContacts);
@@ -247,6 +262,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         isLoading,
         uniqueGroups,
         hasGroupAccess,
+        isLocalMode,
         handleAddContact,
         handleUpdateContact,
         handleDeleteContact

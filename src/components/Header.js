@@ -1,7 +1,7 @@
 import React from 'react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
-export function Header({ user, userId, theme, setTheme, onSignOut }) {
+export function Header({ user, userId, userProfile, theme, setTheme, onSignOut }) {
     return (
         <header className="mb-6 md:mb-8 flex flex-col sm:flex-row justify-between items-center">
             <div className="text-center sm:text-left mb-4 sm:mb-0">
@@ -15,12 +15,12 @@ export function Header({ user, userId, theme, setTheme, onSignOut }) {
                                 </span>
                                 <span>ログイン中: {user.email}</span>
                             </div>
-                        ) : user?.isAnonymous ? (
+                        ) : user?.isAnonymous || userProfile?.isLocalProfile ? (
                             <div>
                                 <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded mr-2">
-                                    🔒 ゲスト専用
+                                    🎭 ゲストモード
                                 </span>
-                                <span>ゲストユーザー</span>
+                                <span>ゲストユーザー（ローカル保存）</span>
                             </div>
                         ) : (
                             <div>
@@ -31,7 +31,10 @@ export function Header({ user, userId, theme, setTheme, onSignOut }) {
                             </div>
                         )}
                         <div className="text-xs text-gray-400 dark:text-slate-500">
-                            あなたのデータは他のユーザーには表示されません
+                            {user?.isAnonymous || userProfile?.isLocalProfile 
+                                ? 'データはこのブラウザにのみ保存されます' 
+                                : 'あなたのデータは他のユーザーには表示されません'
+                            }
                         </div>
                     </div>
                 )}

@@ -46,6 +46,7 @@ function App() {
         isLoading, 
         uniqueGroups,
         hasGroupAccess,
+        isLocalMode,
         handleAddContact, 
         handleUpdateContact, 
         handleDeleteContact 
@@ -56,6 +57,7 @@ function App() {
         contactsCollectionPath, 
         currentGroupId,
         userProfile,
+        user,
         setError 
     });
     
@@ -122,6 +124,7 @@ function App() {
             <Header 
                 user={user} 
                 userId={userId} 
+                userProfile={userProfile}
                 theme={theme} 
                 setTheme={setTheme} 
                 onSignOut={handleSignOut}
