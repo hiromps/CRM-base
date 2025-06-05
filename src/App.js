@@ -168,6 +168,8 @@ function App() {
                         isLoading={isLoading}
                         onEdit={openEditModal}
                         onDelete={handleDeleteContact}
+                        onAddClick={openAddModal}
+                        isLocalMode={isLocalMode}
                     />
                 </>
             ) : (

@@ -10,7 +10,7 @@ export function SearchAndFilter({
     onAddClick 
 }) {
     return (
-        <div className="mb-6 p-4 bg-white dark:bg-slate-800 rounded-xl shadow-lg">
+        <div className="mb-6 p-4 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-gray-200 dark:border-slate-700">
             <div className="flex flex-col sm:flex-row gap-4 items-center">
                 <input
                     type="text"
@@ -31,9 +31,9 @@ export function SearchAndFilter({
                 </select>
                 <button
                     onClick={onAddClick}
-                    className="w-full sm:w-auto bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out flex items-center justify-center"
+                    className="w-full sm:w-auto bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out flex items-center justify-center"
                 >
-                    <PlusIcon /> <span className="ml-2">新規追加</span>
+                    <PlusIcon /> <span className="ml-2">連絡先を追加</span>
                 </button>
             </div>
         </div>

@@ -33,29 +33,34 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 const parsedContacts = JSON.parse(savedContacts);
                 setContacts(parsedContacts);
             } else {
-                // 新しいグループの場合はデモデータを設定
-                const demoContacts = [
-                    {
-                        id: `demo-${currentGroupId}-1`,
-                        name: '田中太郎',
-                        group: '営業部',
-                        memo: `${currentGroupId.includes('personal') ? '個人用' : 'グループ共有'}の連絡先です。`,
-                        createdAt: new Date(),
-                        updatedAt: new Date(),
-                        createdBy: userId
-                    },
-                    {
-                        id: `demo-${currentGroupId}-2`,
-                        name: '佐藤花子',
-                        group: '開発部',
-                        memo: 'React開発者',
-                        createdAt: new Date(),
-                        updatedAt: new Date(),
-                        createdBy: userId
-                    }
-                ];
-                setContacts(demoContacts);
-                localStorage.setItem(localStorageKey, JSON.stringify(demoContacts));
+                // ゲストユーザーの場合のみデモデータを設定
+                if (user?.isAnonymous || userProfile?.isLocalProfile) {
+                    const demoContacts = [
+                        {
+                            id: `demo-${currentGroupId}-1`,
+                            name: '田中太郎',
+                            group: '営業部',
+                            memo: `${currentGroupId.includes('personal') ? '個人用' : 'ワークスペース共有'}の連絡先です。`,
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                            createdBy: userId
+                        },
+                        {
+                            id: `demo-${currentGroupId}-2`,
+                            name: '佐藤花子',
+                            group: '開発部',
+                            memo: 'React開発者',
+                            createdAt: new Date(),
+                            updatedAt: new Date(),
+                            createdBy: userId
+                        }
+                    ];
+                    setContacts(demoContacts);
+                    localStorage.setItem(localStorageKey, JSON.stringify(demoContacts));
+                } else {
+                    // 認証済みユーザーは空の状態から開始
+                    setContacts([]);
+                }
             }
             setIsLoading(false);
         } catch (error) {
