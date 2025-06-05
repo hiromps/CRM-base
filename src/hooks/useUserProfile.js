@@ -118,14 +118,21 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                     isAnonymous: false
                 };
 
+                // プロファイルを作成
                 await setDoc(userDocRef, defaultProfile);
                 console.log('User profile created successfully');
+                
+                // 作成完了を確実に確認するため、少し待機してから再読み込み
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
                 // プロファイル作成後、再度読み込んで確認
                 const createdDoc = await getDoc(userDocRef);
                 if (createdDoc.exists()) {
-                    setUserProfile(createdDoc.data());
+                    const createdData = createdDoc.data();
+                    console.log('Verified created profile:', createdData);
+                    setUserProfile(createdData);
                 } else {
+                    console.log('Profile creation verification failed, using default profile');
                     setUserProfile(defaultProfile);
                 }
             } else {
@@ -141,6 +148,10 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                         memberOfGroups: updatedGroups,
                         updatedAt: Timestamp.now()
                     });
+                    
+                    // 更新完了を確認
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    
                     setUserProfile({
                         ...profileData,
                         memberOfGroups: updatedGroups
@@ -151,11 +162,42 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             }
         } catch (error) {
             console.error('Error initializing user profile:', error);
-            // Firestoreエラーの場合はローカルプロファイルにフォールバック
-            console.log('Falling back to local profile due to Firestore error');
-            const localProfile = loadLocalProfile() || createLocalProfile();
-            setUserProfile(localProfile);
-            setProfileError(null); // エラーをクリア
+            
+            // 権限エラーの場合は、プロファイル作成を再試行
+            if (error.code === 'permission-denied') {
+                console.log('Permission denied, retrying profile creation...');
+                try {
+                    // 少し待機してから再試行
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    const userDocRef = doc(db, 'users', userId);
+                    const defaultProfile = {
+                        uid: userId,
+                        email: user?.email || null,
+                        displayName: user?.displayName || user?.email?.split('@')[0] || 'ユーザー',
+                        memberOfGroups: [`personal_${userId}`],
+                        createdAt: Timestamp.now(),
+                        updatedAt: Timestamp.now(),
+                        isAnonymous: false
+                    };
+                    
+                    await setDoc(userDocRef, defaultProfile);
+                    setUserProfile(defaultProfile);
+                    console.log('Profile creation retry successful');
+                } catch (retryError) {
+                    console.error('Profile creation retry failed:', retryError);
+                    // 最終的にローカルプロファイルにフォールバック
+                    const localProfile = loadLocalProfile() || createLocalProfile();
+                    setUserProfile(localProfile);
+                    setProfileError(null);
+                }
+            } else {
+                // その他のエラーの場合はローカルプロファイルにフォールバック
+                console.log('Falling back to local profile due to Firestore error');
+                const localProfile = loadLocalProfile() || createLocalProfile();
+                setUserProfile(localProfile);
+                setProfileError(null);
+            }
         } finally {
             setIsProfileLoading(false);
         }

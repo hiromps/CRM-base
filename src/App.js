@@ -140,8 +140,14 @@ function App() {
     // プロファイル読み込み中
     if (isProfileLoading) {
         return (
-            <div className="flex justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
-                ユーザープロファイルを読み込み中...
+            <div className="flex flex-col justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto mb-4"></div>
+                    <h2 className="text-xl font-semibold mb-2">ユーザープロファイルを設定中...</h2>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                        新規アカウントの場合、初期設定に少し時間がかかる場合があります
+                    </p>
+                </div>
             </div>
         );
     }

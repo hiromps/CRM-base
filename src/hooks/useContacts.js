@@ -105,6 +105,13 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
+        // ユーザープロファイルが存在しない場合は待機
+        if (!userProfile && !user?.isAnonymous) {
+            console.log("Waiting for user profile to be created...");
+            setIsLoading(true);
+            return;
+        }
+
         // ローカルモードの場合は常にローカルストレージを使用
         if (isLocalMode) {
             console.log("Using local storage mode for anonymous user or local profile");
@@ -115,6 +122,22 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
             console.log("No access to group:", currentGroupId, "User profile:", userProfile);
+            
+            // 新規ユーザーの場合は少し待機してから再チェック
+            if (userProfile && !userProfile.memberOfGroups?.includes(currentGroupId)) {
+                console.log("New user detected, waiting for profile setup to complete...");
+                setIsLoading(true);
+                
+                // 3秒後に再チェック
+                const timeoutId = setTimeout(() => {
+                    console.log("Retrying after profile setup delay...");
+                    // useEffectが再実行されるようにstateを更新
+                    setIsLoading(false);
+                }, 3000);
+                
+                return () => clearTimeout(timeoutId);
+            }
+            
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
@@ -138,17 +161,24 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         }, (err) => {
             console.error("Error fetching contacts:", err);
             if (err.code === 'permission-denied') {
-                setError(`グループ "${currentGroupId}" へのアクセスが拒否されました。グループメンバーであることを確認してください。`);
+                console.log("Permission denied, checking if this is a new user...");
+                
+                // 新規ユーザーの可能性がある場合は、少し待機してからローカルストレージにフォールバック
+                setTimeout(() => {
+                    console.log("Falling back to local storage after permission denied error");
+                    setError(`グループ "${currentGroupId}" へのアクセスが拒否されました。プロファイル設定を確認中...`);
+                    loadContactsFromLocalStorage();
+                }, 1000);
             } else {
                 setError(`顧客データの取得に失敗しました: ${err.message}`);
+                // Fallback to local storage on Firestore error
+                console.log("Falling back to local storage due to Firestore error");
+                loadContactsFromLocalStorage();
             }
-            // Fallback to local storage on Firestore error
-            console.log("Falling back to local storage due to Firestore error");
-            loadContactsFromLocalStorage();
         });
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, isProfileLoading]);
+    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, isProfileLoading, userProfile]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
