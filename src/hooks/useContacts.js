@@ -10,7 +10,7 @@ import {
     Timestamp
 } from 'firebase/firestore';
 
-export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError }) {
+export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError, isProfileLoading }) {
     const [contacts, setContacts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -49,7 +49,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                             id: `demo-${currentGroupId}-2`,
                             name: '佐藤花子',
                             group: '開発部',
-                            memo: 'React開発者',
+                            memo: '開発者',
                             createdAt: new Date(),
                             updatedAt: new Date(),
                             createdBy: userId
@@ -98,6 +98,13 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
+        // プロファイル読み込み中の場合は待機
+        if (isProfileLoading) {
+            console.log("Waiting for profile to load...");
+            setIsLoading(true);
+            return;
+        }
+
         // ローカルモードの場合は常にローカルストレージを使用
         if (isLocalMode) {
             console.log("Using local storage mode for anonymous user or local profile");
@@ -107,7 +114,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
 
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
-            console.log("No access to group:", currentGroupId);
+            console.log("No access to group:", currentGroupId, "User profile:", userProfile);
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
@@ -141,7 +148,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         });
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey]);
+    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, isProfileLoading]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {

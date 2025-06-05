@@ -8,8 +8,6 @@ export function WorkspaceSettings({
     isSettingsLoading 
 }) {
     const [showSettings, setShowSettings] = useState(false);
-    const [password, setPassword] = useState('');
-    const [hasPassword, setHasPassword] = useState(false);
     const [description, setDescription] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -21,12 +19,8 @@ export function WorkspaceSettings({
     // 設定を開く時に現在の値を読み込み
     const handleOpenSettings = () => {
         if (workspaceSettings) {
-            setPassword(workspaceSettings.password || '');
-            setHasPassword(workspaceSettings.hasPassword || false);
             setDescription(workspaceSettings.description || '');
         } else {
-            setPassword('');
-            setHasPassword(false);
             setDescription('');
         }
         setShowSettings(true);
@@ -36,8 +30,6 @@ export function WorkspaceSettings({
         setIsUpdating(true);
         try {
             const settings = {
-                hasPassword,
-                password: hasPassword ? password : '',
                 description: description.trim()
             };
 
@@ -69,19 +61,14 @@ export function WorkspaceSettings({
             )}
 
             {/* ワークスペース情報表示 */}
-            {workspaceSettings && (
+            {workspaceSettings && workspaceSettings.description && (
                 <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-blue-800 dark:text-blue-200 flex items-center">
-                                <span className="mr-2">🔒</span>
-                                {workspaceSettings.hasPassword ? 'パスワード保護されています' : 'オープンワークスペース'}
+                                <span className="mr-2">📝</span>
+                                {workspaceSettings.description}
                             </p>
-                            {workspaceSettings.description && (
-                                <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
-                                    {workspaceSettings.description}
-                                </p>
-                            )}
                         </div>
                         {isWorkspaceAdmin && (
                             <span className="text-xs bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-2 py-1 rounded">
@@ -118,7 +105,7 @@ export function WorkspaceSettings({
                                     </label>
                                     <input
                                         type="text"
-                                        value={currentGroupId}
+                                        value={workspaceSettings?.displayName || currentGroupId}
                                         disabled
                                         className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400"
                                     />
@@ -137,45 +124,22 @@ export function WorkspaceSettings({
                                         onChange={(e) => setDescription(e.target.value)}
                                         placeholder="このワークスペースの用途や説明を入力..."
                                         className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all resize-none"
-                                        rows="3"
+                                        rows="4"
                                     />
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        ワークスペースの用途や目的を説明してください
+                                    </p>
                                 </div>
 
-                                {/* パスワード設定 */}
-                                <div>
-                                    <div className="flex items-center mb-3">
-                                        <input
-                                            type="checkbox"
-                                            id="hasPassword"
-                                            checked={hasPassword}
-                                            onChange={(e) => setHasPassword(e.target.checked)}
-                                            className="mr-3 h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300 rounded"
-                                        />
-                                        <label htmlFor="hasPassword" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                            あいことば（パスワード）で保護する
-                                        </label>
-                                    </div>
-
-                                    {hasPassword && (
-                                        <div>
-                                            <input
-                                                type="text"
-                                                value={password}
-                                                onChange={(e) => setPassword(e.target.value)}
-                                                placeholder="あいことばを入力..."
-                                                className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
-                                            />
-                                            <div className="mt-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                                                <p className="text-xs text-yellow-800 dark:text-yellow-200 flex items-start">
-                                                    <span className="mr-2 mt-0.5">⚠️</span>
-                                                    <span>
-                                                        <strong>重要:</strong> あいことばを設定すると、新しいメンバーが参加する際にこのあいことばの入力が必要になります。
-                                                        あいことばは忘れないよう注意してください。
-                                                    </span>
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
+                                {/* 招待コード情報 */}
+                                <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                                    <p className="text-sm text-green-800 dark:text-green-200 flex items-start">
+                                        <span className="mr-2 mt-0.5">🔗</span>
+                                        <span>
+                                            <strong>招待システム:</strong> このワークスペースは招待コードで保護されています。
+                                            新しいメンバーを招待するには、「招待コード生成」ボタンから6桁のコードを作成してください。
+                                        </span>
+                                    </p>
                                 </div>
                             </div>
 
@@ -190,7 +154,7 @@ export function WorkspaceSettings({
                                 </button>
                                 <button
                                     onClick={handleSaveSettings}
-                                    disabled={isUpdating || (hasPassword && !password.trim())}
+                                    disabled={isUpdating}
                                     className="flex-1 bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-150 ease-in-out flex items-center justify-center"
                                 >
                                     {isUpdating ? (

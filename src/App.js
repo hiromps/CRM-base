@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useFirebase } from './hooks/useFirebase';
 import { useUserProfile } from './hooks/useUserProfile';
@@ -40,17 +40,23 @@ function App() {
         joinGroup,
         leaveGroup,
         updateProfile,
-        setProfileError
+        setProfileError,
+        createWorkspace,
+        joinWorkspaceByCode,
+        generateInviteCode
     } = useUserProfile({ db, user, userId, isAuthReady });
     
     const {
         workspaceSettings,
+        workspaceInfo,
+        workspacesInfo,
         isSettingsLoading,
         settingsError,
         isWorkspaceAdmin,
         updateWorkspaceSettings,
-        verifyWorkspacePassword,
-        setSettingsError
+        setSettingsError,
+        loadWorkspacesInfo,
+        getWorkspaceDisplayName
     } = useWorkspaceSettings({ db, userId, currentGroupId, user });
     
     const { 
@@ -70,8 +76,16 @@ function App() {
         currentGroupId,
         userProfile,
         user,
-        setError 
+        setError,
+        isProfileLoading
     });
+
+    // ユーザープロファイルが読み込まれたら、ワークスペース情報を取得
+    useEffect(() => {
+        if (userProfile?.memberOfGroups && userProfile.memberOfGroups.length > 0) {
+            loadWorkspacesInfo(userProfile.memberOfGroups);
+        }
+    }, [userProfile?.memberOfGroups, loadWorkspacesInfo]);
     
     const openAddModal = () => {
         setCurrentContact(null);
@@ -115,6 +129,7 @@ function App() {
         return (
             <LoginForm 
                 auth={auth} 
+                db={db}
                 onLoginSuccess={() => {}} 
                 error={error} 
                 setError={setError} 
@@ -140,6 +155,7 @@ function App() {
                 theme={theme} 
                 setTheme={setTheme} 
                 onSignOut={handleSignOut}
+                updateProfile={updateProfile}
             />
 
             {(error || profileError || settingsError) && (
@@ -161,7 +177,12 @@ function App() {
                     onGroupChange={switchGroup}
                     joinGroup={joinGroup}
                     leaveGroup={leaveGroup}
-                    verifyWorkspacePassword={verifyWorkspacePassword}
+                    createWorkspace={createWorkspace}
+                    joinWorkspaceByCode={joinWorkspaceByCode}
+                    generateInviteCode={generateInviteCode}
+                    workspaceInfo={workspaceInfo}
+                    workspacesInfo={workspacesInfo}
+                    getWorkspaceDisplayName={getWorkspaceDisplayName}
                 />
             )}
 

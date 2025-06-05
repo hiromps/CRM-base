@@ -9,18 +9,45 @@ service cloud.firestore {
       allow create: if request.auth != null; // 新規ユーザー登録時
     }
 
-    // ワークスペース設定管理
+    // ユーザー認証情報: 自分の認証情報のみアクセス可能
+    match /user_credentials/{userId} {
+      // 作成: 新規登録時のみ（自分のドキュメント）
+      allow create: if request.auth != null && request.auth.uid == userId;
+      // 読み取り・更新・削除: 自分の認証情報のみ
+      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ユーザーID重複チェック用（新規登録時のみ）
+    match /user_credentials/{document=**} {
+      // 認証済みユーザーがユーザーID重複チェックを行う場合のみ許可
+      allow read: if request.auth != null;
+    }
+
+    // ワークスペース管理
     match /workspaces/{workspaceId} {
       // 作成者のみが設定を管理可能
-      allow read, write: if request.auth != null && 
-        (resource == null || request.auth.uid == resource.data.createdBy);
-      // 参加時の読み取り権限（パスワード確認用）
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.createdBy;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.createdBy;
+      
+      // 読み取り権限: 認証済みユーザーは基本情報を読み取り可能（招待コード機能のため）
+      // セキュリティ: 機密情報（パスワードなど）は別途制御
       allow read: if request.auth != null;
+    }
+
+    // 招待コード管理
+    match /invite_codes/{inviteCodeId} {
+      // 作成: 認証済みユーザーのみ
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.createdBy;
+      // 読み取り: 認証済みユーザーは招待コード検索のため読み取り可能
+      allow read: if request.auth != null;
+      // 更新・削除: 作成者のみ
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.createdBy;
     }
 
     // グループごとの連絡先データ
     match /groups/{groupId}/contacts/{contactId} {
-      // 読み取り条件:
+      // 読み取り・書き込み条件:
       // 1. 認証済みであること
       // 2. ユーザーのプロファイルドキュメントが存在すること
       // 3. ユーザーがこの groupId のメンバーであること (users/{userId}.memberOfGroups に groupId が含まれている)
@@ -35,10 +62,8 @@ service cloud.firestore {
       allow read: if request.auth != null &&
                      exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.memberOfGroups.hasAny([groupId]);
-      // 書き込み: グループ管理者のみ許可 (例: `createdBy` フィールドや、別途 `admins` 配列で管理)
+      // 書き込み: グループ管理者のみ許可
       allow write: if request.auth != null &&
-                      // (ここにグループ管理者のみが書き込める条件を追加)
-                      // 例えば、ドキュメント内の createdBy フィールドが自分のIDと一致する場合など
                       resource.data.createdBy == request.auth.uid;
     }
 

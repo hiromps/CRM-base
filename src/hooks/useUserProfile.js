@@ -5,8 +5,31 @@ import {
     setDoc, 
     updateDoc,
     onSnapshot,
-    Timestamp 
+    Timestamp,
+    arrayUnion,
+    arrayRemove,
+    collection,
+    addDoc,
+    query,
+    where,
+    getDocs
 } from 'firebase/firestore';
+
+// ワークスペースIDを生成する関数
+function generateWorkspaceId() {
+    const prefix = 'ws_';
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = prefix;
+    for (let i = 0; i < 12; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+// 6桁のランダムな数字を生成
+function generateInviteCode() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
 
 export function useUserProfile({ db, user, userId, isAuthReady }) {
     const [userProfile, setUserProfile] = useState(null);
@@ -83,6 +106,7 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
             if (!userDoc.exists()) {
                 // 新規ユーザーの場合、プロファイルを作成
+                console.log('Creating new user profile for:', userId);
                 const defaultProfile = {
                     uid: userId,
                     email: user?.email || null,
@@ -94,9 +118,35 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                 };
 
                 await setDoc(userDocRef, defaultProfile);
-                setUserProfile(defaultProfile);
+                console.log('User profile created successfully');
+                
+                // プロファイル作成後、再度読み込んで確認
+                const createdDoc = await getDoc(userDocRef);
+                if (createdDoc.exists()) {
+                    setUserProfile(createdDoc.data());
+                } else {
+                    setUserProfile(defaultProfile);
+                }
             } else {
-                setUserProfile(userDoc.data());
+                const profileData = userDoc.data();
+                console.log('Existing user profile loaded:', profileData);
+                
+                // 個人グループが含まれていない場合は追加
+                const personalGroupId = `personal_${userId}`;
+                if (!profileData.memberOfGroups?.includes(personalGroupId)) {
+                    console.log('Adding personal group to existing profile');
+                    const updatedGroups = [...(profileData.memberOfGroups || []), personalGroupId];
+                    await updateDoc(userDocRef, {
+                        memberOfGroups: updatedGroups,
+                        updatedAt: Timestamp.now()
+                    });
+                    setUserProfile({
+                        ...profileData,
+                        memberOfGroups: updatedGroups
+                    });
+                } else {
+                    setUserProfile(profileData);
+                }
             }
         } catch (error) {
             console.error('Error initializing user profile:', error);
@@ -231,6 +281,132 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
         }
     };
 
+    // 新しいワークスペースを作成する関数
+    const createWorkspace = async (displayName, description = '') => {
+        if (!db || !userId || user?.isAnonymous) {
+            throw new Error('ワークスペースの作成にはログインが必要です');
+        }
+
+        try {
+            const workspaceId = generateWorkspaceId();
+            
+            // ワークスペースメタデータを作成
+            const workspaceData = {
+                id: workspaceId,
+                displayName: displayName.trim(),
+                description: description.trim(),
+                createdBy: userId,
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+                memberCount: 1,
+                isPrivate: true // デフォルトでプライベート
+            };
+
+            // Firestoreにワークスペースを保存
+            await setDoc(doc(db, 'workspaces', workspaceId), workspaceData);
+
+            // ユーザーをワークスペースに追加
+            await joinGroup(workspaceId);
+
+            return workspaceId;
+        } catch (error) {
+            console.error('Error creating workspace:', error);
+            throw new Error(`ワークスペースの作成に失敗しました: ${error.message}`);
+        }
+    };
+
+    // ワークスペースに参加する関数（招待コード使用）
+    const joinWorkspaceByCode = async (inviteCode) => {
+        if (!db || !userId || user?.isAnonymous) {
+            throw new Error('ワークスペースへの参加にはログインが必要です');
+        }
+
+        try {
+            // 招待コードからワークスペースIDを取得
+            const workspaceId = await getWorkspaceIdFromInviteCode(inviteCode);
+            
+            if (!workspaceId) {
+                throw new Error('無効な招待コードです');
+            }
+
+            // ワークスペースの存在確認
+            const workspaceDoc = await getDoc(doc(db, 'workspaces', workspaceId));
+            if (!workspaceDoc.exists()) {
+                throw new Error('ワークスペースが見つかりません');
+            }
+
+            // ワークスペースに参加
+            await joinGroup(workspaceId);
+
+            return workspaceId;
+        } catch (error) {
+            console.error('Error joining workspace:', error);
+            throw error;
+        }
+    };
+
+    // 招待コードからワークスペースIDを取得
+    const getWorkspaceIdFromInviteCode = async (inviteCode) => {
+        try {
+            // 6桁の数字かどうかを確認
+            if (!/^\d{6}$/.test(inviteCode)) {
+                throw new Error('招待コードは6桁の数字である必要があります');
+            }
+
+            // invite_codes コレクションから該当するコードを検索
+            const inviteCodesRef = collection(db, 'invite_codes');
+            const q = query(inviteCodesRef, where('code', '==', inviteCode));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                throw new Error('無効な招待コードです');
+            }
+
+            const inviteDoc = querySnapshot.docs[0];
+            const inviteData = inviteDoc.data();
+
+            // 有効期限チェック（7日間）
+            const now = Date.now();
+            const createdAt = inviteData.createdAt.toMillis();
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+
+            if (now - createdAt > sevenDays) {
+                throw new Error('招待コードの有効期限が切れています');
+            }
+
+            return inviteData.workspaceId;
+        } catch (error) {
+            throw error;
+        }
+    };
+
+    // 招待コードを生成
+    const generateInviteCodeForWorkspace = async (workspaceId) => {
+        if (!db || !userId || user?.isAnonymous) {
+            throw new Error('招待コードの生成にはログインが必要です');
+        }
+
+        try {
+            const inviteCode = generateInviteCode();
+            
+            // invite_codes コレクションに保存
+            const inviteCodeData = {
+                code: inviteCode,
+                workspaceId: workspaceId,
+                createdBy: userId,
+                createdAt: Timestamp.now(),
+                usedCount: 0
+            };
+
+            await addDoc(collection(db, 'invite_codes'), inviteCodeData);
+            
+            return inviteCode;
+        } catch (error) {
+            console.error('Error generating invite code:', error);
+            throw new Error(`招待コードの生成に失敗しました: ${error.message}`);
+        }
+    };
+
     return {
         userProfile,
         isProfileLoading,
@@ -238,6 +414,9 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
         joinGroup,
         leaveGroup,
         updateProfile,
-        setProfileError
+        setProfileError,
+        createWorkspace,
+        joinWorkspaceByCode,
+        generateInviteCode: generateInviteCodeForWorkspace
     };
 } 

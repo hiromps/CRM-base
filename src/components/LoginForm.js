@@ -6,18 +6,67 @@ import {
     GoogleAuthProvider,
     signInAnonymously
 } from 'firebase/auth';
+import { 
+    doc, 
+    setDoc,
+    query,
+    where,
+    collection,
+    getDocs
+} from 'firebase/firestore';
 
-export function LoginForm({ auth, onLoginSuccess, error, setError }) {
+export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
     const [isLogin, setIsLogin] = useState(true);
+    const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'userid'
+    
+    // メール認証用
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    
+    // ユーザーID認証用
+    const [userId, setUserId] = useState('');
+    const [userPassword, setUserPassword] = useState('');
+    const [displayName, setDisplayName] = useState('');
+    
     const [isLoading, setIsLoading] = useState(false);
 
+    // ユーザーIDの重複チェック
+    const checkUserIdExists = async (userId) => {
+        if (!db) return false; // dbが利用できない場合はfalseを返す
+        
+        try {
+            const userCredentialsRef = collection(db, 'user_credentials');
+            const q = query(userCredentialsRef, where('userId', '==', userId));
+            const querySnapshot = await getDocs(q);
+            return !querySnapshot.empty;
+        } catch (error) {
+            console.error('Error checking user ID:', error);
+            return false; // エラーの場合は重複なしとして扱う
+        }
+    };
+
+    // メールアドレスでのログイン・新規登録
     const handleEmailLogin = async (e) => {
         e.preventDefault();
-        if (!email || !password) {
-            setError('メールアドレスとパスワードを入力してください。');
-            return;
+        
+        if (isLogin) {
+            // ログイン
+            if (!email || !password) {
+                setError('メールアドレスとパスワードを入力してください。');
+                return;
+            }
+        } else {
+            // 新規登録
+            if (!email || !password || !userId || !displayName) {
+                setError('すべての項目を入力してください。');
+                return;
+            }
+            
+            // ユーザーID形式チェック
+            if (!/^[a-zA-Z0-9_]{3,20}$/.test(userId)) {
+                setError('ユーザーIDは3-20文字の英数字とアンダースコアのみ使用できます。');
+                return;
+            }
         }
 
         setIsLoading(true);
@@ -27,7 +76,29 @@ export function LoginForm({ auth, onLoginSuccess, error, setError }) {
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
-                await createUserWithEmailAndPassword(auth, email, password);
+                // ユーザーIDの重複チェック（dbが利用可能な場合のみ）
+                if (db) {
+                    const userIdExists = await checkUserIdExists(userId);
+                    if (userIdExists) {
+                        setError('このユーザーIDは既に使用されています。');
+                        return;
+                    }
+                }
+
+                // 新規登録
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+
+                // Firestoreにユーザー認証情報を保存（dbが利用可能な場合のみ）
+                if (db) {
+                    await setDoc(doc(db, 'user_credentials', user.uid), {
+                        userId: userId,
+                        email: email,
+                        displayName: displayName,
+                        createdAt: new Date(),
+                        authMethod: 'email'
+                    });
+                }
             }
             onLoginSuccess();
         } catch (error) {
@@ -50,6 +121,121 @@ export function LoginForm({ auth, onLoginSuccess, error, setError }) {
                     break;
                 default:
                     setError(`認証エラー: ${error.message}`);
+            }
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // ユーザーIDでのログイン・新規登録
+    const handleUserIdLogin = async (e) => {
+        e.preventDefault();
+        
+        if (isLogin) {
+            // ログイン
+            if (!userId || !userPassword) {
+                setError('ユーザーIDとパスワードを入力してください。');
+                return;
+            }
+            await loginWithUserId();
+        } else {
+            // 新規登録
+            if (!userId || !userPassword || !email || !displayName) {
+                setError('すべての項目を入力してください。');
+                return;
+            }
+            await registerWithUserId();
+        }
+    };
+
+    // ユーザーIDでログイン
+    const loginWithUserId = async () => {
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // ユーザーIDを一時的なメールアドレス形式に変換
+            // 例: user123 -> user123@userid.local
+            const tempEmail = `${userId}@userid.local`;
+            
+            // Firebase認証を試行
+            await signInWithEmailAndPassword(auth, tempEmail, userPassword);
+            onLoginSuccess();
+        } catch (error) {
+            console.error('UserID authentication error:', error);
+            switch (error.code) {
+                case 'auth/user-not-found':
+                    setError('ユーザーIDが見つかりません。');
+                    break;
+                case 'auth/wrong-password':
+                    setError('パスワードが間違っています。');
+                    break;
+                case 'auth/invalid-email':
+                    setError('無効なユーザーIDです。');
+                    break;
+                default:
+                    setError(`ログインエラー: ${error.message}`);
+            }
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // ユーザーIDで新規登録
+    const registerWithUserId = async () => {
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // ユーザーID形式チェック
+            if (!/^[a-zA-Z0-9_]{3,20}$/.test(userId)) {
+                setError('ユーザーIDは3-20文字の英数字とアンダースコアのみ使用できます。');
+                return;
+            }
+
+            // ユーザーIDの重複チェック
+            if (db) {
+                const userIdExists = await checkUserIdExists(userId);
+                if (userIdExists) {
+                    setError('このユーザーIDは既に使用されています。');
+                    return;
+                }
+            }
+
+            // ユーザーIDを一時的なメールアドレス形式に変換
+            const tempEmail = `${userId}@userid.local`;
+
+            // Firebase認証でアカウント作成
+            const userCredential = await createUserWithEmailAndPassword(auth, tempEmail, userPassword);
+            const user = userCredential.user;
+
+            // Firestoreにユーザー認証情報を保存（dbが利用可能な場合のみ）
+            if (db) {
+                await setDoc(doc(db, 'user_credentials', user.uid), {
+                    userId: userId,
+                    email: email, // 実際のメールアドレス（復旧用）
+                    tempEmail: tempEmail, // 認証用の一時メールアドレス
+                    displayName: displayName,
+                    createdAt: new Date(),
+                    authMethod: 'userid'
+                });
+            }
+
+            onLoginSuccess();
+        } catch (error) {
+            console.error('UserID registration error:', error);
+            switch (error.code) {
+                case 'auth/email-already-in-use':
+                    setError('このユーザーIDは既に使用されています。');
+                    break;
+                case 'auth/weak-password':
+                    setError('パスワードは6文字以上で入力してください。');
+                    break;
+                case 'auth/invalid-email':
+                    setError('無効なユーザーIDです。');
+                    break;
+                default:
+                    setError(`登録エラー: ${error.message}`);
             }
         } finally {
             setIsLoading(false);
@@ -109,43 +295,188 @@ export function LoginForm({ auth, onLoginSuccess, error, setError }) {
                     </div>
                 )}
 
-                <form onSubmit={handleEmailLogin} className="space-y-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            メールアドレス
-                        </label>
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
-                            placeholder="example@email.com"
+                {/* ログイン方法選択 */}
+                <div className="mb-6">
+                    <div className="flex bg-gray-100 dark:bg-slate-700 rounded-lg p-1">
+                        <button
+                            onClick={() => setLoginMethod('email')}
+                            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                                loginMethod === 'email'
+                                    ? 'bg-white dark:bg-slate-600 text-sky-600 dark:text-sky-400 shadow-sm'
+                                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                            }`}
                             disabled={isLoading}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            パスワード
-                        </label>
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
-                            placeholder="パスワード"
+                        >
+                            📧 メールアドレス
+                        </button>
+                        <button
+                            onClick={() => setLoginMethod('userid')}
+                            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                                loginMethod === 'userid'
+                                    ? 'bg-white dark:bg-slate-600 text-sky-600 dark:text-sky-400 shadow-sm'
+                                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                            }`}
                             disabled={isLoading}
-                        />
+                        >
+                            👤 ユーザーID
+                        </button>
                     </div>
+                </div>
 
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className="w-full bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-150 ease-in-out"
-                    >
-                        {isLoading ? '処理中...' : (isLogin ? 'ログイン' : '新規登録')}
-                    </button>
-                </form>
+                {/* メールアドレス認証フォーム */}
+                {loginMethod === 'email' && (
+                    <form onSubmit={handleEmailLogin} className="space-y-6">
+                        {!isLogin && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        ユーザーID
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={userId}
+                                        onChange={(e) => setUserId(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                        placeholder="user123"
+                                        disabled={isLoading}
+                                    />
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        3-20文字の英数字とアンダースコア
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        表示名
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={displayName}
+                                        onChange={(e) => setDisplayName(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                        placeholder="田中太郎"
+                                        disabled={isLoading}
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                メールアドレス
+                            </label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                placeholder="example@email.com"
+                                disabled={isLoading}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                パスワード
+                            </label>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                placeholder="パスワード"
+                                disabled={isLoading}
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="w-full bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-150 ease-in-out"
+                        >
+                            {isLoading ? '処理中...' : (isLogin ? 'ログイン' : '新規登録')}
+                        </button>
+                    </form>
+                )}
+
+                {/* ユーザーID認証フォーム */}
+                {loginMethod === 'userid' && (
+                    <form onSubmit={handleUserIdLogin} className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                ユーザーID
+                            </label>
+                            <input
+                                type="text"
+                                value={userId}
+                                onChange={(e) => setUserId(e.target.value)}
+                                className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                placeholder="user123"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                3-20文字の英数字とアンダースコア
+                            </p>
+                        </div>
+
+                        {!isLogin && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        表示名
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={displayName}
+                                        onChange={(e) => setDisplayName(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                        placeholder="田中太郎"
+                                        disabled={isLoading}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        メールアドレス
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                        placeholder="example@email.com"
+                                        disabled={isLoading}
+                                    />
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        アカウント復旧用（必須）
+                                    </p>
+                                </div>
+                            </>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                パスワード
+                            </label>
+                            <input
+                                type="password"
+                                value={userPassword}
+                                onChange={(e) => setUserPassword(e.target.value)}
+                                className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
+                                placeholder="パスワード"
+                                disabled={isLoading}
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="w-full bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-150 ease-in-out"
+                        >
+                            {isLoading ? '処理中...' : (isLogin ? 'ログイン' : '新規登録')}
+                        </button>
+                    </form>
+                )}
 
                 <div className="mt-6">
                     <div className="relative">
@@ -194,4 +525,4 @@ export function LoginForm({ auth, onLoginSuccess, error, setError }) {
             </div>
         </div>
     );
-} 
+}
