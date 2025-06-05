@@ -1,42 +1,49 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 export function useTheme() {
-    const [theme, setThemeState] = useState(() => {
+    const [theme, setTheme] = useState(() => {
         if (typeof window !== 'undefined') {
             return localStorage.getItem('theme') || 'system';
         }
-        return 'system'; // Default for SSR or non-browser environments
+        return 'system';
     });
 
-    const applyTheme = useCallback((newTheme) => {
-        const root = window.document.documentElement;
-        const isDark =
-            newTheme === 'dark' ||
-            (newTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    // テーマを適用する関数
+    const applyTheme = (currentTheme) => {
+        if (typeof window === 'undefined') return;
         
-        root.classList.toggle('dark', isDark);
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('theme', newTheme);
+        const root = document.documentElement;
+        const isDark = currentTheme === 'dark' || 
+            (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        
+        if (isDark) {
+            root.classList.add('dark');
+        } else {
+            root.classList.remove('dark');
         }
-    }, []);
+        
+        localStorage.setItem('theme', currentTheme);
+    };
 
+    // テーマが変更された時に適用
     useEffect(() => {
         applyTheme(theme);
-    }, [theme, applyTheme]);
+    }, [theme]);
 
+    // システムテーマの変更を監視（systemモードの場合のみ）
     useEffect(() => {
-        if (typeof window === 'undefined') return; // Guard for non-browser environments
+        if (typeof window === 'undefined' || theme !== 'system') return;
 
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handleChange = () => {
+        const handleSystemThemeChange = () => {
             if (theme === 'system') {
                 applyTheme('system');
             }
         };
 
-        mediaQuery.addEventListener('change', handleChange);
-        return () => mediaQuery.removeEventListener('change', handleChange);
-    }, [theme, applyTheme]);
+        mediaQuery.addEventListener('change', handleSystemThemeChange);
+        return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+    }, [theme]);
 
-    return [theme, setThemeState];
+    return [theme, setTheme];
 } 
