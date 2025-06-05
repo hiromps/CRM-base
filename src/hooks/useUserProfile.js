@@ -82,6 +82,7 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             };
             localStorage.setItem(getLocalStorageKey(), JSON.stringify(updated));
             setUserProfile(updated);
+            console.log('Local profile updated:', updated);
         } catch (error) {
             console.error('Error updating local profile:', error);
         }
@@ -261,23 +262,33 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
     // プロファイル更新
     const updateProfile = async (updates) => {
-        if (!userId) return;
+        if (!userId) {
+            console.error('No userId provided for profile update');
+            return;
+        }
+
+        console.log('Updating profile with:', updates);
 
         // ローカルプロファイルの場合
         if (userProfile?.isLocalProfile || user?.isAnonymous || !db) {
+            console.log('Using local profile update');
             updateLocalProfile(updates);
             return;
         }
 
         try {
             const userDocRef = doc(db, 'users', userId);
-            await updateDoc(userDocRef, {
+            const updateData = {
                 ...updates,
                 updatedAt: Timestamp.now()
-            });
+            };
+            console.log('Updating Firestore profile with:', updateData);
+            await updateDoc(userDocRef, updateData);
+            console.log('Profile updated successfully');
         } catch (error) {
             console.error('Error updating profile:', error);
             setProfileError(`プロファイル更新に失敗しました: ${error.message}`);
+            throw error; // エラーを再スローして呼び出し元で処理できるようにする
         }
     };
 

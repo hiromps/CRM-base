@@ -1,10 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
 export function Header({ user, userId, userProfile, theme, setTheme, onSignOut, updateProfile }) {
     const [isEditingName, setIsEditingName] = useState(false);
     const [editingName, setEditingName] = useState('');
     const [isUpdating, setIsUpdating] = useState(false);
+
+    // デバッグ用ログ
+    useEffect(() => {
+        console.log('Header component props:', {
+            userId,
+            userProfile: userProfile ? { ...userProfile, displayName: userProfile.displayName } : null,
+            updateProfile: typeof updateProfile,
+            hasUpdateProfile: !!updateProfile
+        });
+    }, [userId, userProfile, updateProfile]);
 
     // 表示名を取得
     const getDisplayName = () => {
@@ -34,16 +44,30 @@ export function Header({ user, userId, userProfile, theme, setTheme, onSignOut, 
 
     // 表示名保存
     const saveDisplayName = async () => {
-        if (!editingName.trim() || !updateProfile) return;
+        if (!editingName.trim()) {
+            alert('表示名を入力してください。');
+            return;
+        }
+        
+        if (!updateProfile) {
+            console.error('updateProfile function is not available');
+            alert('プロファイル更新機能が利用できません。');
+            return;
+        }
 
         setIsUpdating(true);
         try {
+            console.log('Saving display name:', editingName.trim());
             await updateProfile({ displayName: editingName.trim() });
+            console.log('Display name saved successfully');
             setIsEditingName(false);
             setEditingName('');
+            
+            // 成功のフィードバック（オプション）
+            // alert('表示名を更新しました。');
         } catch (error) {
             console.error('Error updating display name:', error);
-            alert('表示名の更新に失敗しました。');
+            alert(`表示名の更新に失敗しました: ${error.message || 'Unknown error'}`);
         } finally {
             setIsUpdating(false);
         }
@@ -108,7 +132,7 @@ export function Header({ user, userId, userProfile, theme, setTheme, onSignOut, 
                                             {updateProfile && (
                                                 <button
                                                     onClick={startEditing}
-                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                                                     title="表示名を編集"
                                                 >
                                                     ✏️
@@ -161,7 +185,7 @@ export function Header({ user, userId, userProfile, theme, setTheme, onSignOut, 
                                             {updateProfile && (
                                                 <button
                                                     onClick={startEditing}
-                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                                                     title="表示名を編集"
                                                 >
                                                     ✏️
@@ -214,7 +238,7 @@ export function Header({ user, userId, userProfile, theme, setTheme, onSignOut, 
                                             {updateProfile && (
                                                 <button
                                                     onClick={startEditing}
-                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                                                    className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                                                     title="表示名を編集"
                                                 >
                                                     ✏️
