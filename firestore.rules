@@ -17,12 +17,6 @@ service cloud.firestore {
       allow read, update, delete: if request.auth != null && request.auth.uid == userId;
     }
 
-    // ユーザーID重複チェック用（新規登録時のみ）
-    match /user_credentials/{document=**} {
-      // 認証済みユーザーがユーザーID重複チェックを行う場合のみ許可
-      allow read: if request.auth != null;
-    }
-
     // ワークスペース管理
     match /workspaces/{workspaceId} {
       // 作成者のみが設定を管理可能

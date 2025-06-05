@@ -8,14 +8,11 @@ import {
 } from 'firebase/auth';
 import { 
     doc, 
-    setDoc,
-    query,
-    where,
-    collection,
-    getDocs
+    setDoc
 } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
-export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
+export function LoginForm({ auth, onLoginSuccess, error, setError }) {
     const [isLogin, setIsLogin] = useState(true);
     const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'userid'
     
@@ -30,43 +27,12 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
     
     const [isLoading, setIsLoading] = useState(false);
 
-    // ユーザーIDの重複チェック
-    const checkUserIdExists = async (userId) => {
-        if (!db) return false; // dbが利用できない場合はfalseを返す
-        
-        try {
-            const userCredentialsRef = collection(db, 'user_credentials');
-            const q = query(userCredentialsRef, where('userId', '==', userId));
-            const querySnapshot = await getDocs(q);
-            return !querySnapshot.empty;
-        } catch (error) {
-            console.error('Error checking user ID:', error);
-            return false; // エラーの場合は重複なしとして扱う
-        }
-    };
-
     // メールアドレスでのログイン・新規登録
     const handleEmailLogin = async (e) => {
         e.preventDefault();
-        
-        if (isLogin) {
-            // ログイン
-            if (!email || !password) {
-                setError('メールアドレスとパスワードを入力してください。');
-                return;
-            }
-        } else {
-            // 新規登録
-            if (!email || !password || !userId || !displayName) {
-                setError('すべての項目を入力してください。');
-                return;
-            }
-            
-            // ユーザーID形式チェック
-            if (!/^[a-zA-Z0-9_]{3,20}$/.test(userId)) {
-                setError('ユーザーIDは3-20文字の英数字とアンダースコアのみ使用できます。');
-                return;
-            }
+        if (!email || !password) {
+            setError('メールアドレスとパスワードを入力してください。');
+            return;
         }
 
         setIsLoading(true);
@@ -76,29 +42,7 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
             if (isLogin) {
                 await signInWithEmailAndPassword(auth, email, password);
             } else {
-                // ユーザーIDの重複チェック（dbが利用可能な場合のみ）
-                if (db) {
-                    const userIdExists = await checkUserIdExists(userId);
-                    if (userIdExists) {
-                        setError('このユーザーIDは既に使用されています。');
-                        return;
-                    }
-                }
-
-                // 新規登録
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-
-                // Firestoreにユーザー認証情報を保存（dbが利用可能な場合のみ）
-                if (db) {
-                    await setDoc(doc(db, 'user_credentials', user.uid), {
-                        userId: userId,
-                        email: email,
-                        displayName: displayName,
-                        createdAt: new Date(),
-                        authMethod: 'email'
-                    });
-                }
+                await createUserWithEmailAndPassword(auth, email, password);
             }
             onLoginSuccess();
         } catch (error) {
@@ -193,15 +137,6 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
                 return;
             }
 
-            // ユーザーIDの重複チェック
-            if (db) {
-                const userIdExists = await checkUserIdExists(userId);
-                if (userIdExists) {
-                    setError('このユーザーIDは既に使用されています。');
-                    return;
-                }
-            }
-
             // ユーザーIDを一時的なメールアドレス形式に変換
             const tempEmail = `${userId}@userid.local`;
 
@@ -209,17 +144,15 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
             const userCredential = await createUserWithEmailAndPassword(auth, tempEmail, userPassword);
             const user = userCredential.user;
 
-            // Firestoreにユーザー認証情報を保存（dbが利用可能な場合のみ）
-            if (db) {
-                await setDoc(doc(db, 'user_credentials', user.uid), {
-                    userId: userId,
-                    email: email, // 実際のメールアドレス（復旧用）
-                    tempEmail: tempEmail, // 認証用の一時メールアドレス
-                    displayName: displayName,
-                    createdAt: new Date(),
-                    authMethod: 'userid'
-                });
-            }
+            // Firestoreにユーザー認証情報を保存
+            await setDoc(doc(db, 'user_credentials', user.uid), {
+                userId: userId,
+                email: email, // 実際のメールアドレス（復旧用）
+                tempEmail: tempEmail, // 認証用の一時メールアドレス
+                displayName: displayName,
+                createdAt: new Date(),
+                authMethod: 'userid'
+            });
 
             onLoginSuccess();
         } catch (error) {
@@ -326,41 +259,6 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
                 {/* メールアドレス認証フォーム */}
                 {loginMethod === 'email' && (
                     <form onSubmit={handleEmailLogin} className="space-y-6">
-                        {!isLogin && (
-                            <>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        ユーザーID
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={userId}
-                                        onChange={(e) => setUserId(e.target.value)}
-                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
-                                        placeholder="user123"
-                                        disabled={isLoading}
-                                    />
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        3-20文字の英数字とアンダースコア
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        表示名
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={displayName}
-                                        onChange={(e) => setDisplayName(e.target.value)}
-                                        className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-all"
-                                        placeholder="田中太郎"
-                                        disabled={isLoading}
-                                    />
-                                </div>
-                            </>
-                        )}
-
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 メールアドレス
@@ -525,4 +423,4 @@ export function LoginForm({ auth, db, onLoginSuccess, error, setError }) {
             </div>
         </div>
     );
-}
+} 

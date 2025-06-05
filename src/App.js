@@ -76,8 +76,7 @@ function App() {
         currentGroupId,
         userProfile,
         user,
-        setError,
-        isProfileLoading
+        setError 
     });
 
     // ユーザープロファイルが読み込まれたら、ワークスペース情報を取得
@@ -129,7 +128,6 @@ function App() {
         return (
             <LoginForm 
                 auth={auth} 
-                db={db}
                 onLoginSuccess={() => {}} 
                 error={error} 
                 setError={setError} 
@@ -140,20 +138,8 @@ function App() {
     // プロファイル読み込み中
     if (isProfileLoading) {
         return (
-            <div className="flex flex-col justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
-                <div className="text-center max-w-md">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto mb-4"></div>
-                    <h2 className="text-xl font-semibold mb-2">アカウントを設定中...</h2>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-                        新規アカウントの初期設定を行っています。<br />
-                        この処理は数秒で完了します。
-                    </p>
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                        <p className="text-xs text-blue-700 dark:text-blue-300">
-                            💡 初回ログイン時は、個人用ワークスペースの作成とセキュリティ設定を行っています
-                        </p>
-                    </div>
-                </div>
+            <div className="flex justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
+                ユーザープロファイルを読み込み中...
             </div>
         );
     }
@@ -167,7 +153,6 @@ function App() {
                 theme={theme} 
                 setTheme={setTheme} 
                 onSignOut={handleSignOut}
-                updateProfile={updateProfile}
             />
 
             {(error || profileError || settingsError) && (

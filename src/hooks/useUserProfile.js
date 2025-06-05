@@ -82,7 +82,6 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             };
             localStorage.setItem(getLocalStorageKey(), JSON.stringify(updated));
             setUserProfile(updated);
-            console.log('Local profile updated:', updated);
         } catch (error) {
             console.error('Error updating local profile:', error);
         }
@@ -107,7 +106,6 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
             if (!userDoc.exists()) {
                 // 新規ユーザーの場合、プロファイルを作成
-                console.log('Creating new user profile for:', userId);
                 const defaultProfile = {
                     uid: userId,
                     email: user?.email || null,
@@ -118,99 +116,18 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                     isAnonymous: false
                 };
 
-                // プロファイルを作成
                 await setDoc(userDocRef, defaultProfile);
-                console.log('User profile created successfully');
-                
-                // 作成完了を確実に確認するため、少し待機してから再読み込み
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // プロファイル作成後、再度読み込んで確認
-                let retryCount = 0;
-                const maxRetries = 5;
-                
-                while (retryCount < maxRetries) {
-                    const createdDoc = await getDoc(userDocRef);
-                    if (createdDoc.exists()) {
-                        const createdData = createdDoc.data();
-                        console.log('Verified created profile:', createdData);
-                        setUserProfile(createdData);
-                        return; // 成功したので関数を終了
-                    } else {
-                        console.log(`Profile verification failed, retry ${retryCount + 1}/${maxRetries}`);
-                        retryCount++;
-                        if (retryCount < maxRetries) {
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-                        }
-                    }
-                }
-                
-                // 最大試行回数に達した場合はデフォルトプロファイルを使用
-                console.log('Profile creation verification failed after max retries, using default profile');
                 setUserProfile(defaultProfile);
             } else {
-                const profileData = userDoc.data();
-                console.log('Existing user profile loaded:', profileData);
-                
-                // 個人グループが含まれていない場合は追加
-                const personalGroupId = `personal_${userId}`;
-                if (!profileData.memberOfGroups?.includes(personalGroupId)) {
-                    console.log('Adding personal group to existing profile');
-                    const updatedGroups = [...(profileData.memberOfGroups || []), personalGroupId];
-                    await updateDoc(userDocRef, {
-                        memberOfGroups: updatedGroups,
-                        updatedAt: Timestamp.now()
-                    });
-                    
-                    // 更新完了を確認
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                    
-                    setUserProfile({
-                        ...profileData,
-                        memberOfGroups: updatedGroups
-                    });
-                } else {
-                    setUserProfile(profileData);
-                }
+                setUserProfile(userDoc.data());
             }
         } catch (error) {
             console.error('Error initializing user profile:', error);
-            
-            // 権限エラーの場合は、プロファイル作成を再試行
-            if (error.code === 'permission-denied') {
-                console.log('Permission denied, retrying profile creation...');
-                try {
-                    // 少し待機してから再試行
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    const userDocRef = doc(db, 'users', userId);
-                    const defaultProfile = {
-                        uid: userId,
-                        email: user?.email || null,
-                        displayName: user?.displayName || user?.email?.split('@')[0] || 'ユーザー',
-                        memberOfGroups: [`personal_${userId}`],
-                        createdAt: Timestamp.now(),
-                        updatedAt: Timestamp.now(),
-                        isAnonymous: false
-                    };
-                    
-                    await setDoc(userDocRef, defaultProfile);
-                    setUserProfile(defaultProfile);
-                    console.log('Profile creation retry successful');
-                } catch (retryError) {
-                    console.error('Profile creation retry failed:', retryError);
-                    // 最終的にローカルプロファイルにフォールバック
-                    const localProfile = loadLocalProfile() || createLocalProfile();
-                    setUserProfile(localProfile);
-                    setProfileError(null);
-                }
-            } else {
-                // その他のエラーの場合はローカルプロファイルにフォールバック
-                console.log('Falling back to local profile due to Firestore error');
-                const localProfile = loadLocalProfile() || createLocalProfile();
-                setUserProfile(localProfile);
-                setProfileError(null);
-            }
+            // Firestoreエラーの場合はローカルプロファイルにフォールバック
+            console.log('Falling back to local profile due to Firestore error');
+            const localProfile = loadLocalProfile() || createLocalProfile();
+            setUserProfile(localProfile);
+            setProfileError(null); // エラーをクリア
         } finally {
             setIsProfileLoading(false);
         }
@@ -232,67 +149,29 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             return;
         }
 
-        // 新規ユーザーの場合、まずプロファイル作成を試行
-        const initializeAndListen = async () => {
-            try {
-                const userDocRef = doc(db, 'users', userId);
-                const userDoc = await getDoc(userDocRef);
-
-                if (!userDoc.exists()) {
-                    console.log('New user detected, creating profile first...');
-                    await initializeUserProfile();
-                    
-                    // プロファイル作成完了を確認するため、少し待機
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+        const userDocRef = doc(db, 'users', userId);
+        const unsubscribe = onSnapshot(userDocRef, 
+            (doc) => {
+                if (doc.exists()) {
+                    setUserProfile(doc.data());
+                    setIsProfileLoading(false);
+                } else {
+                    // プロファイルが存在しない場合は初期化
+                    initializeUserProfile();
                 }
-
-                // プロファイル作成後、リアルタイム監視を開始
-                const unsubscribe = onSnapshot(userDocRef, 
-                    (doc) => {
-                        if (doc.exists()) {
-                            const profileData = doc.data();
-                            console.log('Profile data updated:', profileData);
-                            setUserProfile(profileData);
-                            setIsProfileLoading(false);
-                        } else {
-                            // プロファイルが存在しない場合は再初期化
-                            console.log('Profile not found, reinitializing...');
-                            initializeUserProfile();
-                        }
-                    },
-                    (error) => {
-                        console.error('Error listening to user profile:', error);
-                        // エラーの場合はローカルプロファイルにフォールバック
-                        console.log('Falling back to local profile due to listener error');
-                        const localProfile = loadLocalProfile() || createLocalProfile();
-                        setUserProfile(localProfile);
-                        setIsProfileLoading(false);
-                        setProfileError(null);
-                    }
-                );
-
-                return unsubscribe;
-            } catch (error) {
-                console.error('Error in initializeAndListen:', error);
+            },
+            (error) => {
+                console.error('Error listening to user profile:', error);
                 // エラーの場合はローカルプロファイルにフォールバック
+                console.log('Falling back to local profile due to listener error');
                 const localProfile = loadLocalProfile() || createLocalProfile();
                 setUserProfile(localProfile);
                 setIsProfileLoading(false);
-                setProfileError(null);
-                return () => {}; // 空の cleanup 関数
+                setProfileError(null); // エラーをクリア
             }
-        };
+        );
 
-        let unsubscribe;
-        initializeAndListen().then(cleanup => {
-            unsubscribe = cleanup;
-        });
-
-        return () => {
-            if (unsubscribe) {
-                unsubscribe();
-            }
-        };
+        return () => unsubscribe();
     }, [db, userId, isAuthReady, user?.isAnonymous]);
 
     // グループに参加
@@ -355,33 +234,23 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
 
     // プロファイル更新
     const updateProfile = async (updates) => {
-        if (!userId) {
-            console.error('No userId provided for profile update');
-            return;
-        }
-
-        console.log('Updating profile with:', updates);
+        if (!userId) return;
 
         // ローカルプロファイルの場合
         if (userProfile?.isLocalProfile || user?.isAnonymous || !db) {
-            console.log('Using local profile update');
             updateLocalProfile(updates);
             return;
         }
 
         try {
             const userDocRef = doc(db, 'users', userId);
-            const updateData = {
+            await updateDoc(userDocRef, {
                 ...updates,
                 updatedAt: Timestamp.now()
-            };
-            console.log('Updating Firestore profile with:', updateData);
-            await updateDoc(userDocRef, updateData);
-            console.log('Profile updated successfully');
+            });
         } catch (error) {
             console.error('Error updating profile:', error);
             setProfileError(`プロファイル更新に失敗しました: ${error.message}`);
-            throw error; // エラーを再スローして呼び出し元で処理できるようにする
         }
     };
 

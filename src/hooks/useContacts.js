@@ -10,7 +10,7 @@ import {
     Timestamp
 } from 'firebase/firestore';
 
-export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError, isProfileLoading }) {
+export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError }) {
     const [contacts, setContacts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -49,7 +49,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                             id: `demo-${currentGroupId}-2`,
                             name: '佐藤花子',
                             group: '開発部',
-                            memo: '開発者',
+                            memo: 'React開発者',
                             createdAt: new Date(),
                             updatedAt: new Date(),
                             createdBy: userId
@@ -98,27 +98,6 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
-        // プロファイル読み込み中の場合は待機
-        if (isProfileLoading) {
-            console.log("Waiting for profile to load...");
-            setIsLoading(true);
-            return;
-        }
-
-        // 認証済みユーザーでプロファイルが存在しない場合は待機
-        if (!user?.isAnonymous && !userProfile) {
-            console.log("Waiting for user profile to be created...");
-            setIsLoading(true);
-            return;
-        }
-
-        // 認証済みユーザーでプロファイルは存在するが、memberOfGroupsが空の場合は待機
-        if (!user?.isAnonymous && userProfile && (!userProfile.memberOfGroups || userProfile.memberOfGroups.length === 0)) {
-            console.log("Waiting for user profile memberOfGroups to be populated...");
-            setIsLoading(true);
-            return;
-        }
-
         // ローカルモードの場合は常にローカルストレージを使用
         if (isLocalMode) {
             console.log("Using local storage mode for anonymous user or local profile");
@@ -128,23 +107,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
 
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
-            console.log("No access to group:", currentGroupId, "User profile:", userProfile);
-            
-            // 新規ユーザーの場合は少し待機してから再チェック
-            if (userProfile && !userProfile.memberOfGroups?.includes(currentGroupId)) {
-                console.log("New user detected, waiting for profile setup to complete...");
-                setIsLoading(true);
-                
-                // 5秒後に再チェック（時間を延長）
-                const timeoutId = setTimeout(() => {
-                    console.log("Retrying after profile setup delay...");
-                    // useEffectが再実行されるようにstateを更新
-                    setIsLoading(false);
-                }, 5000);
-                
-                return () => clearTimeout(timeoutId);
-            }
-            
+            console.log("No access to group:", currentGroupId);
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
@@ -155,58 +118,30 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         setError(null);
         console.log(`Setting up Firestore listener for group: ${currentGroupId}`);
 
-        // Firestoreリスナーを設定する前に、少し待機してプロファイル設定が完全に反映されるのを待つ
-        const setupListener = () => {
-            const q = query(collection(db, contactsCollectionPath));
-            const unsubscribe = onSnapshot(q, (querySnapshot) => {
-                const contactsData = [];
-                querySnapshot.forEach((doc) => {
-                    contactsData.push({ id: doc.id, ...doc.data() });
-                });
-                contactsData.sort((a, b) => a.name.localeCompare(b.name));
-                setContacts(contactsData);
-                setIsLoading(false);
-                console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
-            }, (err) => {
-                console.error("Error fetching contacts:", err);
-                if (err.code === 'permission-denied') {
-                    console.log("Permission denied, this might be a timing issue with new user profile...");
-                    
-                    // 権限エラーの場合は、ローカルストレージにフォールバック
-                    setTimeout(() => {
-                        console.log("Falling back to local storage after permission denied error");
-                        setError(`プロファイル設定を確認中です。しばらくお待ちください...`);
-                        loadContactsFromLocalStorage();
-                    }, 500);
-                } else {
-                    setError(`顧客データの取得に失敗しました: ${err.message}`);
-                    // Fallback to local storage on Firestore error
-                    console.log("Falling back to local storage due to Firestore error");
-                    loadContactsFromLocalStorage();
-                }
+        const q = query(collection(db, contactsCollectionPath));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const contactsData = [];
+            querySnapshot.forEach((doc) => {
+                contactsData.push({ id: doc.id, ...doc.data() });
             });
-            
-            return unsubscribe;
-        };
+            contactsData.sort((a, b) => a.name.localeCompare(b.name));
+            setContacts(contactsData);
+            setIsLoading(false);
+            console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
+        }, (err) => {
+            console.error("Error fetching contacts:", err);
+            if (err.code === 'permission-denied') {
+                setError(`グループ "${currentGroupId}" へのアクセスが拒否されました。グループメンバーであることを確認してください。`);
+            } else {
+                setError(`顧客データの取得に失敗しました: ${err.message}`);
+            }
+            // Fallback to local storage on Firestore error
+            console.log("Falling back to local storage due to Firestore error");
+            loadContactsFromLocalStorage();
+        });
 
-        // 新規ユーザーの場合は少し待機してからリスナーを設定
-        const isNewUser = userProfile && userProfile.createdAt && 
-                         (Date.now() - userProfile.createdAt.toMillis() < 10000); // 10秒以内に作成されたプロファイル
-
-        if (isNewUser) {
-            console.log("New user detected, waiting before setting up listener...");
-            const timeoutId = setTimeout(() => {
-                console.log("Setting up listener after new user delay...");
-                const unsubscribe = setupListener();
-                return unsubscribe;
-            }, 2000);
-            
-            return () => clearTimeout(timeoutId);
-        } else {
-            const unsubscribe = setupListener();
-            return () => unsubscribe();
-        }
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, isProfileLoading, userProfile]);
+        return () => unsubscribe();
+    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
