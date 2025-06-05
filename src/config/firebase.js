@@ -1,3 +1,7 @@
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
 // Firebase Configuration
 export const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
     apiKey: "AIzaSyC-kkfkAJ4weIt7bxNNaoxKtUUb0OrDP7w",
@@ -10,3 +14,12 @@ export const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.pa
 };
 
 export const appId = typeof __app_id !== 'undefined' ? __app_id : 'customer-base-a8093';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Firebase services
+export const db = getFirestore(app);
+export const auth = getAuth(app);
+
+export default app;
