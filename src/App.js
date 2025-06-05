@@ -141,12 +141,18 @@ function App() {
     if (isProfileLoading) {
         return (
             <div className="flex flex-col justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
-                <div className="text-center">
+                <div className="text-center max-w-md">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-500 mx-auto mb-4"></div>
-                    <h2 className="text-xl font-semibold mb-2">ユーザープロファイルを設定中...</h2>
-                    <p className="text-sm text-gray-500 dark:text-slate-400">
-                        新規アカウントの場合、初期設定に少し時間がかかる場合があります
+                    <h2 className="text-xl font-semibold mb-2">アカウントを設定中...</h2>
+                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
+                        新規アカウントの初期設定を行っています。<br />
+                        この処理は数秒で完了します。
                     </p>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                        <p className="text-xs text-blue-700 dark:text-blue-300">
+                            💡 初回ログイン時は、個人用ワークスペースの作成とセキュリティ設定を行っています
+                        </p>
+                    </div>
                 </div>
             </div>
         );

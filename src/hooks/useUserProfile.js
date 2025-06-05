@@ -123,18 +123,31 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
                 console.log('User profile created successfully');
                 
                 // 作成完了を確実に確認するため、少し待機してから再読み込み
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 
                 // プロファイル作成後、再度読み込んで確認
-                const createdDoc = await getDoc(userDocRef);
-                if (createdDoc.exists()) {
-                    const createdData = createdDoc.data();
-                    console.log('Verified created profile:', createdData);
-                    setUserProfile(createdData);
-                } else {
-                    console.log('Profile creation verification failed, using default profile');
-                    setUserProfile(defaultProfile);
+                let retryCount = 0;
+                const maxRetries = 5;
+                
+                while (retryCount < maxRetries) {
+                    const createdDoc = await getDoc(userDocRef);
+                    if (createdDoc.exists()) {
+                        const createdData = createdDoc.data();
+                        console.log('Verified created profile:', createdData);
+                        setUserProfile(createdData);
+                        return; // 成功したので関数を終了
+                    } else {
+                        console.log(`Profile verification failed, retry ${retryCount + 1}/${maxRetries}`);
+                        retryCount++;
+                        if (retryCount < maxRetries) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                    }
                 }
+                
+                // 最大試行回数に達した場合はデフォルトプロファイルを使用
+                console.log('Profile creation verification failed after max retries, using default profile');
+                setUserProfile(defaultProfile);
             } else {
                 const profileData = userDoc.data();
                 console.log('Existing user profile loaded:', profileData);
@@ -219,29 +232,67 @@ export function useUserProfile({ db, user, userId, isAuthReady }) {
             return;
         }
 
-        const userDocRef = doc(db, 'users', userId);
-        const unsubscribe = onSnapshot(userDocRef, 
-            (doc) => {
-                if (doc.exists()) {
-                    setUserProfile(doc.data());
-                    setIsProfileLoading(false);
-                } else {
-                    // プロファイルが存在しない場合は初期化
-                    initializeUserProfile();
+        // 新規ユーザーの場合、まずプロファイル作成を試行
+        const initializeAndListen = async () => {
+            try {
+                const userDocRef = doc(db, 'users', userId);
+                const userDoc = await getDoc(userDocRef);
+
+                if (!userDoc.exists()) {
+                    console.log('New user detected, creating profile first...');
+                    await initializeUserProfile();
+                    
+                    // プロファイル作成完了を確認するため、少し待機
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-            },
-            (error) => {
-                console.error('Error listening to user profile:', error);
+
+                // プロファイル作成後、リアルタイム監視を開始
+                const unsubscribe = onSnapshot(userDocRef, 
+                    (doc) => {
+                        if (doc.exists()) {
+                            const profileData = doc.data();
+                            console.log('Profile data updated:', profileData);
+                            setUserProfile(profileData);
+                            setIsProfileLoading(false);
+                        } else {
+                            // プロファイルが存在しない場合は再初期化
+                            console.log('Profile not found, reinitializing...');
+                            initializeUserProfile();
+                        }
+                    },
+                    (error) => {
+                        console.error('Error listening to user profile:', error);
+                        // エラーの場合はローカルプロファイルにフォールバック
+                        console.log('Falling back to local profile due to listener error');
+                        const localProfile = loadLocalProfile() || createLocalProfile();
+                        setUserProfile(localProfile);
+                        setIsProfileLoading(false);
+                        setProfileError(null);
+                    }
+                );
+
+                return unsubscribe;
+            } catch (error) {
+                console.error('Error in initializeAndListen:', error);
                 // エラーの場合はローカルプロファイルにフォールバック
-                console.log('Falling back to local profile due to listener error');
                 const localProfile = loadLocalProfile() || createLocalProfile();
                 setUserProfile(localProfile);
                 setIsProfileLoading(false);
-                setProfileError(null); // エラーをクリア
+                setProfileError(null);
+                return () => {}; // 空の cleanup 関数
             }
-        );
+        };
 
-        return () => unsubscribe();
+        let unsubscribe;
+        initializeAndListen().then(cleanup => {
+            unsubscribe = cleanup;
+        });
+
+        return () => {
+            if (unsubscribe) {
+                unsubscribe();
+            }
+        };
     }, [db, userId, isAuthReady, user?.isAnonymous]);
 
     // グループに参加

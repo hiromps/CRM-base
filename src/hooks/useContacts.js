@@ -105,9 +105,16 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             return;
         }
 
-        // ユーザープロファイルが存在しない場合は待機
-        if (!userProfile && !user?.isAnonymous) {
+        // 認証済みユーザーでプロファイルが存在しない場合は待機
+        if (!user?.isAnonymous && !userProfile) {
             console.log("Waiting for user profile to be created...");
+            setIsLoading(true);
+            return;
+        }
+
+        // 認証済みユーザーでプロファイルは存在するが、memberOfGroupsが空の場合は待機
+        if (!user?.isAnonymous && userProfile && (!userProfile.memberOfGroups || userProfile.memberOfGroups.length === 0)) {
+            console.log("Waiting for user profile memberOfGroups to be populated...");
             setIsLoading(true);
             return;
         }
@@ -128,12 +135,12 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 console.log("New user detected, waiting for profile setup to complete...");
                 setIsLoading(true);
                 
-                // 3秒後に再チェック
+                // 5秒後に再チェック（時間を延長）
                 const timeoutId = setTimeout(() => {
                     console.log("Retrying after profile setup delay...");
                     // useEffectが再実行されるようにstateを更新
                     setIsLoading(false);
-                }, 3000);
+                }, 5000);
                 
                 return () => clearTimeout(timeoutId);
             }
@@ -148,36 +155,57 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         setError(null);
         console.log(`Setting up Firestore listener for group: ${currentGroupId}`);
 
-        const q = query(collection(db, contactsCollectionPath));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const contactsData = [];
-            querySnapshot.forEach((doc) => {
-                contactsData.push({ id: doc.id, ...doc.data() });
-            });
-            contactsData.sort((a, b) => a.name.localeCompare(b.name));
-            setContacts(contactsData);
-            setIsLoading(false);
-            console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
-        }, (err) => {
-            console.error("Error fetching contacts:", err);
-            if (err.code === 'permission-denied') {
-                console.log("Permission denied, checking if this is a new user...");
-                
-                // 新規ユーザーの可能性がある場合は、少し待機してからローカルストレージにフォールバック
-                setTimeout(() => {
-                    console.log("Falling back to local storage after permission denied error");
-                    setError(`グループ "${currentGroupId}" へのアクセスが拒否されました。プロファイル設定を確認中...`);
+        // Firestoreリスナーを設定する前に、少し待機してプロファイル設定が完全に反映されるのを待つ
+        const setupListener = () => {
+            const q = query(collection(db, contactsCollectionPath));
+            const unsubscribe = onSnapshot(q, (querySnapshot) => {
+                const contactsData = [];
+                querySnapshot.forEach((doc) => {
+                    contactsData.push({ id: doc.id, ...doc.data() });
+                });
+                contactsData.sort((a, b) => a.name.localeCompare(b.name));
+                setContacts(contactsData);
+                setIsLoading(false);
+                console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
+            }, (err) => {
+                console.error("Error fetching contacts:", err);
+                if (err.code === 'permission-denied') {
+                    console.log("Permission denied, this might be a timing issue with new user profile...");
+                    
+                    // 権限エラーの場合は、ローカルストレージにフォールバック
+                    setTimeout(() => {
+                        console.log("Falling back to local storage after permission denied error");
+                        setError(`プロファイル設定を確認中です。しばらくお待ちください...`);
+                        loadContactsFromLocalStorage();
+                    }, 500);
+                } else {
+                    setError(`顧客データの取得に失敗しました: ${err.message}`);
+                    // Fallback to local storage on Firestore error
+                    console.log("Falling back to local storage due to Firestore error");
                     loadContactsFromLocalStorage();
-                }, 1000);
-            } else {
-                setError(`顧客データの取得に失敗しました: ${err.message}`);
-                // Fallback to local storage on Firestore error
-                console.log("Falling back to local storage due to Firestore error");
-                loadContactsFromLocalStorage();
-            }
-        });
+                }
+            });
+            
+            return unsubscribe;
+        };
 
-        return () => unsubscribe();
+        // 新規ユーザーの場合は少し待機してからリスナーを設定
+        const isNewUser = userProfile && userProfile.createdAt && 
+                         (Date.now() - userProfile.createdAt.toMillis() < 10000); // 10秒以内に作成されたプロファイル
+
+        if (isNewUser) {
+            console.log("New user detected, waiting before setting up listener...");
+            const timeoutId = setTimeout(() => {
+                console.log("Setting up listener after new user delay...");
+                const unsubscribe = setupListener();
+                return unsubscribe;
+            }, 2000);
+            
+            return () => clearTimeout(timeoutId);
+        } else {
+            const unsubscribe = setupListener();
+            return () => unsubscribe();
+        }
     }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, isProfileLoading, userProfile]);
 
     // CRUD Operations
