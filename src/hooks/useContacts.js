@@ -1,0 +1,198 @@
+import { useState, useEffect, useMemo } from 'react';
+import { 
+    collection, 
+    addDoc, 
+    doc, 
+    setDoc, 
+    deleteDoc, 
+    onSnapshot, 
+    query, 
+    Timestamp
+} from 'firebase/firestore';
+
+export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, setError }) {
+    const [contacts, setContacts] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Local storage functions for demo mode
+    const loadContactsFromLocalStorage = () => {
+        try {
+            const savedContacts = localStorage.getItem('demo-contacts');
+            if (savedContacts) {
+                const parsedContacts = JSON.parse(savedContacts);
+                setContacts(parsedContacts);
+            } else {
+                // Set some demo data
+                const demoContacts = [
+                    {
+                        id: 'demo-1',
+                        name: '田中太郎',
+                        group: '営業部',
+                        memo: 'デモ用の連絡先です。',
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    },
+                    {
+                        id: 'demo-2',
+                        name: '佐藤花子',
+                        group: '開発部',
+                        memo: 'React開発者',
+                        createdAt: new Date(),
+                        updatedAt: new Date()
+                    }
+                ];
+                setContacts(demoContacts);
+                localStorage.setItem('demo-contacts', JSON.stringify(demoContacts));
+            }
+            setIsLoading(false);
+        } catch (error) {
+            console.error("Error loading from local storage:", error);
+            setContacts([]);
+            setIsLoading(false);
+        }
+    };
+
+    const saveContactsToLocalStorage = (updatedContacts) => {
+        try {
+            localStorage.setItem('demo-contacts', JSON.stringify(updatedContacts));
+        } catch (error) {
+            console.error("Error saving to local storage:", error);
+        }
+    };
+
+    // Fetch Contacts
+    useEffect(() => {
+        if (!isAuthReady || !userId) {
+            console.log("Firestore listener prerequisites not met:", { isAuthReady, userId });
+            return;
+        }
+
+        // If using demo mode (no Firebase connection), use local storage
+        if (userId === 'demo-user' || !db || !contactsCollectionPath) {
+            console.log("Using demo mode with local storage");
+            loadContactsFromLocalStorage();
+            return;
+        }
+        
+        setIsLoading(true);
+        setError(null);
+        console.log(`Setting up Firestore listener for path: ${contactsCollectionPath}`);
+
+        const q = query(collection(db, contactsCollectionPath));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const contactsData = [];
+            querySnapshot.forEach((doc) => {
+                contactsData.push({ id: doc.id, ...doc.data() });
+            });
+            contactsData.sort((a, b) => a.name.localeCompare(b.name));
+            setContacts(contactsData);
+            setIsLoading(false);
+            console.log("Contacts updated:", contactsData.length);
+        }, (err) => {
+            console.error("Error fetching contacts:", err);
+            setError(`顧客データの取得に失敗しました: ${err.message}`);
+            setIsLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [db, userId, isAuthReady, contactsCollectionPath, setError]);
+
+    // CRUD Operations
+    const handleAddContact = async (contactData) => {
+        if (userId === 'demo-user') {
+            // Demo mode: use local storage
+            const newContact = {
+                id: 'demo-' + Date.now(),
+                ...contactData,
+                createdBy: userId,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            };
+            const updatedContacts = [...contacts, newContact].sort((a, b) => a.name.localeCompare(b.name));
+            setContacts(updatedContacts);
+            saveContactsToLocalStorage(updatedContacts);
+            return;
+        }
+
+        if (!db || !userId || !contactsCollectionPath) {
+            setError("データベース接続がありません。");
+            return;
+        }
+        try {
+            await addDoc(collection(db, contactsCollectionPath), {
+                ...contactData,
+                createdBy: userId,
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now()
+            });
+        } catch (err) {
+            console.error("Error adding contact:", err);
+            setError(`連絡先の追加に失敗しました: ${err.message}`);
+        }
+    };
+
+    const handleUpdateContact = async (contactId, contactData) => {
+        if (userId === 'demo-user') {
+            // Demo mode: use local storage
+            const updatedContacts = contacts.map(contact => 
+                contact.id === contactId 
+                    ? { ...contact, ...contactData, updatedBy: userId, updatedAt: new Date() }
+                    : contact
+            ).sort((a, b) => a.name.localeCompare(b.name));
+            setContacts(updatedContacts);
+            saveContactsToLocalStorage(updatedContacts);
+            return;
+        }
+
+        if (!db || !userId || !contactsCollectionPath) {
+            setError("データベース接続がありません。");
+            return;
+        }
+        try {
+            const contactRef = doc(db, contactsCollectionPath, contactId);
+            await setDoc(contactRef, {
+                ...contactData,
+                updatedBy: userId,
+                updatedAt: Timestamp.now()
+            }, { merge: true });
+        } catch (err) {
+            console.error("Error updating contact:", err);
+            setError(`連絡先の更新に失敗しました: ${err.message}`);
+        }
+    };
+
+    const handleDeleteContact = async (contactId) => {
+        if (userId === 'demo-user') {
+            // Demo mode: use local storage
+            const updatedContacts = contacts.filter(contact => contact.id !== contactId);
+            setContacts(updatedContacts);
+            saveContactsToLocalStorage(updatedContacts);
+            return;
+        }
+
+        if (!db || !contactsCollectionPath) {
+            setError("データベース接続がありません。");
+            return;
+        }
+        try {
+            await deleteDoc(doc(db, contactsCollectionPath, contactId));
+        } catch (err) {
+            console.error("Error deleting contact:", err);
+            setError(`連絡先の削除に失敗しました: ${err.message}`);
+        }
+    };
+
+    const uniqueGroups = useMemo(() => {
+        const groups = new Set(contacts.map(c => c.group).filter(g => g));
+        return ["", ...Array.from(groups).sort()];
+    }, [contacts]);
+
+    return {
+        contacts,
+        isLoading,
+        uniqueGroups,
+        handleAddContact,
+        handleUpdateContact,
+        handleDeleteContact
+    };
+} 
