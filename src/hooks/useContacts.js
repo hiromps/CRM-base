@@ -14,35 +14,41 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
     const [contacts, setContacts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
 
+    // ユーザーごとのローカルストレージキーを生成
+    const localStorageKey = useMemo(() => {
+        if (!userId) return 'demo-contacts';
+        return `contacts-${userId}`;
+    }, [userId]);
+
     // Local storage functions for demo mode
     const loadContactsFromLocalStorage = () => {
         try {
-            const savedContacts = localStorage.getItem('demo-contacts');
+            const savedContacts = localStorage.getItem(localStorageKey);
             if (savedContacts) {
                 const parsedContacts = JSON.parse(savedContacts);
                 setContacts(parsedContacts);
             } else {
-                // Set some demo data
+                // 新しいユーザーの場合はデモデータを設定
                 const demoContacts = [
                     {
-                        id: 'demo-1',
+                        id: `demo-${userId}-1`,
                         name: '田中太郎',
                         group: '営業部',
-                        memo: 'デモ用の連絡先です。',
+                        memo: 'あなた専用のデモ連絡先です。',
                         createdAt: new Date(),
                         updatedAt: new Date()
                     },
                     {
-                        id: 'demo-2',
+                        id: `demo-${userId}-2`,
                         name: '佐藤花子',
                         group: '開発部',
-                        memo: 'React開発者',
+                        memo: 'React開発者（あなた専用）',
                         createdAt: new Date(),
                         updatedAt: new Date()
                     }
                 ];
                 setContacts(demoContacts);
-                localStorage.setItem('demo-contacts', JSON.stringify(demoContacts));
+                localStorage.setItem(localStorageKey, JSON.stringify(demoContacts));
             }
             setIsLoading(false);
         } catch (error) {
@@ -54,7 +60,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
 
     const saveContactsToLocalStorage = (updatedContacts) => {
         try {
-            localStorage.setItem('demo-contacts', JSON.stringify(updatedContacts));
+            localStorage.setItem(localStorageKey, JSON.stringify(updatedContacts));
         } catch (error) {
             console.error("Error saving to local storage:", error);
         }
@@ -76,7 +82,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
         
         setIsLoading(true);
         setError(null);
-        console.log(`Setting up Firestore listener for path: ${contactsCollectionPath}`);
+        console.log(`Setting up Firestore listener for user-specific path: ${contactsCollectionPath}`);
 
         const q = query(collection(db, contactsCollectionPath));
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -87,7 +93,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
             contactsData.sort((a, b) => a.name.localeCompare(b.name));
             setContacts(contactsData);
             setIsLoading(false);
-            console.log("Contacts updated:", contactsData.length);
+            console.log(`Contacts updated for user ${userId}:`, contactsData.length);
         }, (err) => {
             console.error("Error fetching contacts:", err);
             setError(`顧客データの取得に失敗しました: ${err.message}`);
@@ -97,14 +103,14 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, s
         });
 
         return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, setError]);
+    }, [db, userId, isAuthReady, contactsCollectionPath, setError, localStorageKey]);
 
     // CRUD Operations
     const handleAddContact = async (contactData) => {
         if (!db || !contactsCollectionPath) {
             // Demo mode: use local storage
             const newContact = {
-                id: 'demo-' + Date.now(),
+                id: `demo-${userId}-${Date.now()}`,
                 ...contactData,
                 createdBy: userId,
                 createdAt: new Date(),

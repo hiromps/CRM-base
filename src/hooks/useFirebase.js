@@ -19,10 +19,18 @@ export function useFirebase() {
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [error, setError] = useState(null);
 
+    // ユーザーごとの独立したコレクションパスを作成
     const contactsCollectionPath = useMemo(() => {
-        if (!appId || appId === 'default-app-id') return null;
-        return `/artifacts/${appId}/public/data/contacts`;
-    }, [appId]);
+        if (!userId) return null;
+        
+        // 匿名ユーザーの場合は共通のコレクションを使用（デモ用）
+        if (user?.isAnonymous) {
+            return `users/${userId}/contacts`;
+        }
+        
+        // 認証済みユーザーの場合は個別のコレクションを使用
+        return `users/${userId}/contacts`;
+    }, [userId, user]);
 
     // Firebase Initialization and Auth State
     useEffect(() => {
