@@ -1,49 +1,96 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function useTheme() {
-    const [theme, setTheme] = useState(() => {
-        if (typeof window !== 'undefined') {
+    // 初期テーマの取得
+    const getInitialTheme = () => {
+        if (typeof window === 'undefined') return 'system';
+        try {
             return localStorage.getItem('theme') || 'system';
+        } catch {
+            return 'system';
         }
-        return 'system';
-    });
-
-    // テーマを適用する関数
-    const applyTheme = (currentTheme) => {
-        if (typeof window === 'undefined') return;
-        
-        const root = document.documentElement;
-        const isDark = currentTheme === 'dark' || 
-            (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        
-        if (isDark) {
-            root.classList.add('dark');
-        } else {
-            root.classList.remove('dark');
-        }
-        
-        localStorage.setItem('theme', currentTheme);
     };
 
-    // テーマが変更された時に適用
+    const [theme, setThemeState] = useState(getInitialTheme);
+    const isUpdatingRef = useRef(false);
+
+    // テーマを実際に適用する関数
+    const applyTheme = (currentTheme) => {
+        if (typeof window === 'undefined' || isUpdatingRef.current) return;
+        
+        isUpdatingRef.current = true;
+        
+        try {
+            const root = document.documentElement;
+            const isDark = currentTheme === 'dark' || 
+                (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            
+            // DOMを直接更新
+            if (isDark) {
+                root.classList.add('dark');
+            } else {
+                root.classList.remove('dark');
+            }
+            
+            // localStorageに保存
+            localStorage.setItem('theme', currentTheme);
+        } catch (error) {
+            console.error('Theme update error:', error);
+        } finally {
+            isUpdatingRef.current = false;
+        }
+    };
+
+    // テーマ変更時の処理
     useEffect(() => {
         applyTheme(theme);
     }, [theme]);
 
-    // システムテーマの変更を監視（systemモードの場合のみ）
+    // システムテーマ変更の監視
     useEffect(() => {
-        if (typeof window === 'undefined' || theme !== 'system') return;
+        if (typeof window === 'undefined') return;
 
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handleSystemThemeChange = () => {
-            if (theme === 'system') {
-                applyTheme('system');
+        let mediaQuery;
+        let timeoutId;
+
+        try {
+            mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            
+            const handleSystemChange = () => {
+                if (theme === 'system' && !isUpdatingRef.current) {
+                    // デバウンス処理
+                    clearTimeout(timeoutId);
+                    timeoutId = setTimeout(() => {
+                        applyTheme('system');
+                    }, 100);
+                }
+            };
+
+            // イベントリスナーを追加
+            if (mediaQuery.addEventListener) {
+                mediaQuery.addEventListener('change', handleSystemChange);
+            } else {
+                mediaQuery.addListener(handleSystemChange);
             }
-        };
 
-        mediaQuery.addEventListener('change', handleSystemThemeChange);
-        return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+            return () => {
+                clearTimeout(timeoutId);
+                if (mediaQuery.removeEventListener) {
+                    mediaQuery.removeEventListener('change', handleSystemChange);
+                } else {
+                    mediaQuery.removeListener(handleSystemChange);
+                }
+            };
+        } catch (error) {
+            console.error('Media query error:', error);
+        }
     }, [theme]);
+
+    // テーマ設定関数
+    const setTheme = (newTheme) => {
+        if (newTheme === theme || isUpdatingRef.current) return;
+        setThemeState(newTheme);
+    };
 
     return [theme, setTheme];
 } 
