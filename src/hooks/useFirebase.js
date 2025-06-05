@@ -19,18 +19,14 @@ export function useFirebase() {
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [error, setError] = useState(null);
 
-    // ユーザーごとの独立したコレクションパスを作成
+    // 現在選択されているグループID（デフォルトは個人用グループ）
+    const [currentGroupId, setCurrentGroupId] = useState(null);
+
+    // グループベースのコレクションパスを作成
     const contactsCollectionPath = useMemo(() => {
-        if (!userId) return null;
-        
-        // 匿名ユーザーの場合は共通のコレクションを使用（デモ用）
-        if (user?.isAnonymous) {
-            return `users/${userId}/contacts`;
-        }
-        
-        // 認証済みユーザーの場合は個別のコレクションを使用
-        return `users/${userId}/contacts`;
-    }, [userId, user]);
+        if (!currentGroupId) return null;
+        return `groups/${currentGroupId}/contacts`;
+    }, [currentGroupId]);
 
     // Firebase Initialization and Auth State
     useEffect(() => {
@@ -49,9 +45,12 @@ export function useFirebase() {
                 if (currentUser) {
                     setUser(currentUser);
                     setUserId(currentUser.uid);
+                    // デフォルトで個人用グループを設定
+                    setCurrentGroupId(`personal_${currentUser.uid}`);
                 } else {
                     setUser(null);
                     setUserId(null);
+                    setCurrentGroupId(null);
                 }
                 setIsAuthReady(true);
             });
@@ -67,10 +66,16 @@ export function useFirebase() {
     const handleSignOut = async () => {
         try {
             await signOut(auth);
+            setCurrentGroupId(null);
         } catch (error) {
             console.error("Sign out error:", error);
             setError("ログアウトに失敗しました。");
         }
+    };
+
+    // グループ切り替え
+    const switchGroup = (groupId) => {
+        setCurrentGroupId(groupId);
     };
 
     return {
@@ -81,7 +86,9 @@ export function useFirebase() {
         isAuthReady,
         error,
         contactsCollectionPath,
+        currentGroupId,
         setError,
-        handleSignOut
+        handleSignOut,
+        switchGroup
     };
 } 

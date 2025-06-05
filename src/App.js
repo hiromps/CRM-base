@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useFirebase } from './hooks/useFirebase';
+import { useUserProfile } from './hooks/useUserProfile';
 import { useContacts } from './hooks/useContacts';
 import { LoginForm } from './components/LoginForm';
 import { Header } from './components/Header';
+import { GroupSelector } from './components/GroupSelector';
 import { SearchAndFilter } from './components/SearchAndFilter';
 import { ContactList } from './components/ContactList';
 import { ContactModal } from './components/ContactModal';
@@ -15,15 +17,47 @@ function App() {
     const [selectedGroup, setSelectedGroup] = useState('');
     
     const [theme, setTheme] = useTheme();
-    const { db, auth, user, userId, isAuthReady, error, contactsCollectionPath, setError, handleSignOut } = useFirebase();
+    const { 
+        db, 
+        auth, 
+        user, 
+        userId, 
+        isAuthReady, 
+        error, 
+        contactsCollectionPath, 
+        currentGroupId,
+        setError, 
+        handleSignOut,
+        switchGroup
+    } = useFirebase();
+    
+    const {
+        userProfile,
+        isProfileLoading,
+        profileError,
+        joinGroup,
+        leaveGroup,
+        updateProfile,
+        setProfileError
+    } = useUserProfile({ db, user, userId, isAuthReady });
+    
     const { 
         contacts, 
         isLoading, 
-        uniqueGroups, 
+        uniqueGroups,
+        hasGroupAccess,
         handleAddContact, 
         handleUpdateContact, 
         handleDeleteContact 
-    } = useContacts({ db, userId, isAuthReady, contactsCollectionPath, setError });
+    } = useContacts({ 
+        db, 
+        userId, 
+        isAuthReady, 
+        contactsCollectionPath, 
+        currentGroupId,
+        userProfile,
+        setError 
+    });
     
     const openAddModal = () => {
         setCurrentContact(null);
@@ -74,6 +108,15 @@ function App() {
         );
     }
 
+    // プロファイル読み込み中
+    if (isProfileLoading) {
+        return (
+            <div className="flex justify-center items-center min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-700 dark:text-gray-300">
+                ユーザープロファイルを読み込み中...
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 p-4 md:p-8 font-sans transition-colors duration-300">
             <Header 
@@ -84,29 +127,55 @@ function App() {
                 onSignOut={handleSignOut}
             />
 
-            {error && (
+            {(error || profileError) && (
                 <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-md relative mb-4 shadow-md" role="alert">
-                    {error}
+                    {error || profileError}
+                    <button 
+                        onClick={() => { setError(null); setProfileError(null); }}
+                        className="absolute top-0 bottom-0 right-0 px-4 py-3"
+                    >
+                        ×
+                    </button>
                 </div>
             )}
-            
-            <SearchAndFilter
-                searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
-                selectedGroup={selectedGroup}
-                setSelectedGroup={setSelectedGroup}
-                uniqueGroups={uniqueGroups}
-                onAddClick={openAddModal}
-            />
 
-            <ContactList
-                contacts={filteredContacts}
-                isLoading={isLoading}
-                onEdit={openEditModal}
-                onDelete={handleDeleteContact}
-            />
+            {userProfile && (
+                <GroupSelector
+                    userProfile={userProfile}
+                    currentGroupId={currentGroupId}
+                    onGroupChange={switchGroup}
+                    joinGroup={joinGroup}
+                    leaveGroup={leaveGroup}
+                />
+            )}
 
-            {showModal && (
+            {hasGroupAccess ? (
+                <>
+                    <SearchAndFilter
+                        searchTerm={searchTerm}
+                        setSearchTerm={setSearchTerm}
+                        selectedGroup={selectedGroup}
+                        setSelectedGroup={setSelectedGroup}
+                        uniqueGroups={uniqueGroups}
+                        onAddClick={openAddModal}
+                    />
+
+                    <ContactList
+                        contacts={filteredContacts}
+                        isLoading={isLoading}
+                        onEdit={openEditModal}
+                        onDelete={handleDeleteContact}
+                    />
+                </>
+            ) : (
+                <div className="text-center text-gray-500 dark:text-slate-400 py-10 bg-white dark:bg-slate-800 rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold mb-2">アクセス権限がありません</h3>
+                    <p>このグループの連絡先を表示するには、グループメンバーである必要があります。</p>
+                    <p className="text-sm mt-2">グループに参加するか、別のグループを選択してください。</p>
+                </div>
+            )}
+
+            {showModal && hasGroupAccess && (
                 <ContactModal
                     contact={currentContact}
                     onClose={() => { setShowModal(false); setCurrentContact(null); }}
