@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
     onAuthStateChanged,
     signOut
@@ -23,8 +23,10 @@ export function useFirebase() {
         return `groups/${currentGroupId}/contacts`;
     }, [currentGroupId]);
 
-    // Auth State
+    // Auth State - 初回マウント時のみ実行
     useEffect(() => {
+        let mounted = true;
+        
         try {
             // 本番環境ではログレベルを無効化
             if (typeof setLogLevel === 'function' && process.env.NODE_ENV === 'development') {
@@ -32,6 +34,8 @@ export function useFirebase() {
             }
 
             const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+                if (!mounted) return;
+                
                 if (currentUser) {
                     setUser(currentUser);
                     setUserId(currentUser.uid);
@@ -45,15 +49,20 @@ export function useFirebase() {
                 setIsAuthReady(true);
             });
 
-            return () => unsubscribe();
+            return () => {
+                mounted = false;
+                unsubscribe();
+            };
         } catch (e) {
             console.error("Firebase initialization error:", e);
-            setError("Firebaseの初期化に失敗しました。");
-            setIsAuthReady(true);
+            if (mounted) {
+                setError("Firebaseの初期化に失敗しました。");
+                setIsAuthReady(true);
+            }
         }
-    }, []);
+    }, []); // 空の依存配列で初回のみ実行
 
-    const handleSignOut = async () => {
+    const handleSignOut = useCallback(async () => {
         try {
             await signOut(auth);
             setCurrentGroupId(null);
@@ -61,12 +70,17 @@ export function useFirebase() {
             console.error("Sign out error:", error);
             setError("ログアウトに失敗しました。");
         }
-    };
+    }, []);
 
     // グループ切り替え
-    const switchGroup = (groupId) => {
+    const switchGroup = useCallback((groupId) => {
         setCurrentGroupId(groupId);
-    };
+    }, []);
+
+    // エラーセッターをメモ化
+    const memoizedSetError = useCallback((error) => {
+        setError(error);
+    }, []);
 
     return {
         db,
@@ -77,7 +91,7 @@ export function useFirebase() {
         error,
         contactsCollectionPath,
         currentGroupId,
-        setError,
+        setError: memoizedSetError,
         handleSignOut,
         switchGroup
     };

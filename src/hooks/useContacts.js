@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
     collection, 
     addDoc, 
@@ -13,6 +13,10 @@ import {
 export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, currentGroupId, userProfile, user, setError }) {
     const [contacts, setContacts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    
+    // リスナーのクリーンアップ用ref
+    const unsubscribeRef = useRef(null);
+    const mountedRef = useRef(true);
 
     // グループごとのローカルストレージキーを生成
     const localStorageKey = useMemo(() => {
@@ -26,7 +30,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
     }, [user?.isAnonymous, userProfile?.isLocalProfile, db, contactsCollectionPath]);
 
     // Local storage functions for demo mode
-    const loadContactsFromLocalStorage = () => {
+    const loadContactsFromLocalStorage = useCallback(() => {
         try {
             const savedContacts = localStorage.getItem(localStorageKey);
             if (savedContacts) {
@@ -68,15 +72,15 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             setContacts([]);
             setIsLoading(false);
         }
-    };
+    }, [localStorageKey, user?.isAnonymous, userProfile?.isLocalProfile, currentGroupId, userId]);
 
-    const saveContactsToLocalStorage = (updatedContacts) => {
+    const saveContactsToLocalStorage = useCallback((updatedContacts) => {
         try {
             localStorage.setItem(localStorageKey, JSON.stringify(updatedContacts));
         } catch (error) {
             console.error("Error saving to local storage:", error);
         }
-    };
+    }, [localStorageKey]);
 
     // グループアクセス権限チェック（匿名ユーザーは常にアクセス可能）
     const hasGroupAccess = useMemo(() => {
@@ -90,17 +94,39 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         return userProfile.memberOfGroups?.includes(currentGroupId) || false;
     }, [userProfile, currentGroupId, user?.isAnonymous]);
 
-    // Fetch Contacts
+    // Cleanup function
+    const cleanupListener = useCallback(() => {
+        if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+        }
+    }, []);
+
+    // コンポーネントのアンマウント時のクリーンアップ
     useEffect(() => {
+        mountedRef.current = true;
+        
+        return () => {
+            mountedRef.current = false;
+            cleanupListener();
+        };
+    }, [cleanupListener]);
+
+    // Fetch Contacts - 依存配列を最適化してフリーズを防ぐ
+    useEffect(() => {
+        // 前のリスナーをクリーンアップ
+        if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+            unsubscribeRef.current = null;
+        }
+
         if (!isAuthReady || !userId || !currentGroupId) {
-            // console.log("Firestore listener prerequisites not met:", { isAuthReady, userId, currentGroupId });
             setIsLoading(false);
             return;
         }
 
         // ローカルモードの場合は常にローカルストレージを使用
         if (isLocalMode) {
-            // console.log("Using local storage mode for anonymous user or local profile");
             loadContactsFromLocalStorage();
             return;
         }
@@ -114,7 +140,6 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
 
         // グループアクセス権限チェック（認証済みユーザーのみ）
         if (!hasGroupAccess) {
-            // console.log("No access to group:", currentGroupId);
             setError(`グループ "${currentGroupId}" へのアクセス権限がありません。`);
             setContacts([]);
             setIsLoading(false);
@@ -123,10 +148,11 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
         
         setIsLoading(true);
         setError(null);
-        // console.log(`Setting up Firestore listener for group: ${currentGroupId}`);
 
         const q = query(collection(db, contactsCollectionPath));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        unsubscribeRef.current = onSnapshot(q, (querySnapshot) => {
+            if (!mountedRef.current) return;
+            
             const contactsData = [];
             querySnapshot.forEach((doc) => {
                 contactsData.push({ id: doc.id, ...doc.data() });
@@ -134,8 +160,9 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
             contactsData.sort((a, b) => a.name.localeCompare(b.name));
             setContacts(contactsData);
             setIsLoading(false);
-            // console.log(`Contacts updated for group ${currentGroupId}:`, contactsData.length);
         }, (err) => {
+            if (!mountedRef.current) return;
+            
             console.error("Error fetching contacts:", err);
             if (err.code === 'permission-denied') {
                 setError(`グループ "${currentGroupId}" へのアクセスが拒否されました。グループメンバーであることを確認してください。`);
@@ -143,15 +170,30 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 setError(`顧客データの取得に失敗しました: ${err.message}`);
             }
             // Fallback to local storage on Firestore error
-            // console.log("Falling back to local storage due to Firestore error");
             loadContactsFromLocalStorage();
         });
 
-        return () => unsubscribe();
-    }, [db, userId, isAuthReady, contactsCollectionPath, currentGroupId, hasGroupAccess, isLocalMode, setError, localStorageKey, userProfile, user?.isAnonymous]);
+        return () => {
+            if (unsubscribeRef.current) {
+                unsubscribeRef.current();
+                unsubscribeRef.current = null;
+            }
+        };
+    }, [
+        db, 
+        userId, 
+        isAuthReady, 
+        contactsCollectionPath, 
+        currentGroupId, 
+        hasGroupAccess, 
+        isLocalMode, 
+        userProfile,
+        user?.isAnonymous,
+        setError
+    ]); // 関数の依存関係を除外してフリーズを防ぐ
 
-    // CRUD Operations
-    const handleAddContact = async (contactData) => {
+    // CRUD Operations をメモ化
+    const handleAddContact = useCallback(async (contactData) => {
         // ローカルモードまたは権限チェック
         if (isLocalMode || !hasGroupAccess) {
             // ローカルモードの場合は常に許可、認証済みユーザーは権限チェック
@@ -194,9 +236,9 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 setError(`連絡先の追加に失敗しました: ${err.message}`);
             }
         }
-    };
+    }, [contacts, currentGroupId, userId, isLocalMode, hasGroupAccess, db, contactsCollectionPath, saveContactsToLocalStorage, setError]);
 
-    const handleUpdateContact = async (contactId, contactData) => {
+    const handleUpdateContact = useCallback(async (contactId, contactData) => {
         // ローカルモードまたは権限チェック
         if (isLocalMode || !hasGroupAccess) {
             if (!isLocalMode && !hasGroupAccess) {
@@ -235,9 +277,9 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 setError(`連絡先の更新に失敗しました: ${err.message}`);
             }
         }
-    };
+    }, [contacts, currentGroupId, userId, isLocalMode, hasGroupAccess, db, contactsCollectionPath, saveContactsToLocalStorage, setError]);
 
-    const handleDeleteContact = async (contactId) => {
+    const handleDeleteContact = useCallback(async (contactId) => {
         // ローカルモードまたは権限チェック
         if (isLocalMode || !hasGroupAccess) {
             if (!isLocalMode && !hasGroupAccess) {
@@ -262,7 +304,7 @@ export function useContacts({ db, userId, isAuthReady, contactsCollectionPath, c
                 setError(`連絡先の削除に失敗しました: ${err.message}`);
             }
         }
-    };
+    }, [contacts, isLocalMode, hasGroupAccess, db, contactsCollectionPath, saveContactsToLocalStorage, setError]);
 
     const uniqueGroups = useMemo(() => {
         const groups = new Set(contacts.map(c => c.group).filter(g => g));

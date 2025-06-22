@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useFirebase } from './hooks/useFirebase';
 import { useUserProfile } from './hooks/useUserProfile';
@@ -11,12 +11,27 @@ import { WorkspaceSettings } from './components/WorkspaceSettings';
 import { SearchAndFilter } from './components/SearchAndFilter';
 import { ContactList } from './components/ContactList';
 import { ContactModal } from './components/ContactModal';
+import { CSVImportModal } from './components/CSVImportModal';
+// import { CSVImportModal } from './components/CSVImportModal';
+// import { 
+//     exportContactsToCSV 
+//     // importContactsFromCSV, 
+//     // validateImportData, 
+//     // downloadCSVTemplate 
+// } from './utils/csvUtils';
 
 function App() {
     const [showModal, setShowModal] = useState(false);
     const [currentContact, setCurrentContact] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedGroup, setSelectedGroup] = useState('');
+    const [isExporting, setIsExporting] = useState(false);
+    
+    // CSV インポート関連の状態
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importData, setImportData] = useState(null);
+    const [validationResult, setValidationResult] = useState(null);
+    const [isImporting, setIsImporting] = useState(false);
     
     const [theme, setTheme] = useTheme();
     const { 
@@ -79,33 +94,48 @@ function App() {
         setError 
     });
 
-    // ユーザープロファイルが読み込まれたら、ワークスペース情報を取得
+    // ユーザープロファイルが読み込まれたら、ワークスペース情報を取得（デバウンス付き）
     useEffect(() => {
         if (userProfile?.memberOfGroups && userProfile.memberOfGroups.length > 0) {
-            loadWorkspacesInfo(userProfile.memberOfGroups);
+            const timer = setTimeout(() => {
+                loadWorkspacesInfo(userProfile.memberOfGroups);
+            }, 300); // 300msのデバウンス
+            
+            return () => clearTimeout(timer);
         }
-    }, [userProfile?.memberOfGroups, loadWorkspacesInfo]);
+    }, [userProfile?.memberOfGroups]); // loadWorkspacesInfoを依存関係から除外してフリーズを防ぐ
     
-    const openAddModal = () => {
+    const openAddModal = useCallback(() => {
         setCurrentContact(null);
         setShowModal(true);
-    };
+    }, []);
 
-    const openEditModal = (contact) => {
+    const openEditModal = useCallback((contact) => {
         setCurrentContact(contact);
         setShowModal(true);
-    };
+    }, []);
 
-    const handleSave = async (contactData) => {
+    const closeModal = useCallback(() => {
+        setShowModal(false);
+        setCurrentContact(null);
+    }, []);
+
+    const handleSave = useCallback(async (contactData) => {
         if (currentContact) {
             await handleUpdateContact(currentContact.id, contactData);
         } else {
             await handleAddContact(contactData);
         }
-        setShowModal(false);
-        setCurrentContact(null);
-    };
+        closeModal();
+    }, [currentContact, handleUpdateContact, handleAddContact, closeModal]);
 
+    const clearAllErrors = useCallback(() => {
+        setError(null);
+        setProfileError(null);
+        setSettingsError(null);
+    }, [setError, setProfileError, setSettingsError]);
+
+    // フィルタリングされた連絡先を計算（CSVエクスポート用）
     const filteredContacts = useMemo(() => {
         return contacts.filter(contact => {
             const nameMatch = contact.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -113,6 +143,108 @@ function App() {
             return nameMatch && groupMatch;
         });
     }, [contacts, searchTerm, selectedGroup]);
+
+    // ファイルエクスポート処理（CSV/Excel対応）
+    const handleExportFile = useCallback(async (format = 'csv') => {
+        try {
+            setIsExporting(true);
+            
+            // 実行時にフィルタリング結果を計算
+            const currentFilteredContacts = contacts.filter(contact => {
+                const nameMatch = contact.name.toLowerCase().includes(searchTerm.toLowerCase());
+                const groupMatch = selectedGroup ? contact.group === selectedGroup : true;
+                return nameMatch && groupMatch;
+            });
+            
+            const exportData = currentFilteredContacts.length > 0 ? currentFilteredContacts : contacts;
+            if (exportData.length === 0) {
+                setError('エクスポートする連絡先がありません');
+                return;
+            }
+            
+            // 動的インポートでファイルユーティリティを読み込み
+            const currentDate = new Date().toISOString().split('T')[0];
+            const groupName = currentGroupId?.startsWith('personal_') 
+                ? '個人用' 
+                : getWorkspaceDisplayName(currentGroupId);
+            
+            if (format === 'excel') {
+                const { exportContactsToExcel } = await import('./utils/csvUtils');
+                const filename = `contacts_${groupName}_${currentDate}.xlsx`;
+                await exportContactsToExcel(exportData, filename);
+                setError(`${exportData.length}件の連絡先をExcelファイルでエクスポートしました`);
+            } else {
+                const { exportContactsToCSV } = await import('./utils/csvUtils');
+                const filename = `contacts_${groupName}_${currentDate}.csv`;
+                await exportContactsToCSV(exportData, filename);
+                setError(`${exportData.length}件の連絡先をCSVファイルでエクスポートしました`);
+            }
+            
+            setTimeout(() => clearAllErrors(), 3000);
+        } catch (error) {
+            console.error('File Export error:', error);
+            setError(`${format === 'excel' ? 'Excel' : 'CSV'}エクスポートに失敗しました: ${error.message}`);
+        } finally {
+            setIsExporting(false);
+        }
+    }, [contacts, searchTerm, selectedGroup, currentGroupId, getWorkspaceDisplayName, setError, clearAllErrors]);
+
+    // ファイルインポート処理（CSV/Excel自動判定）
+    const handleImportFile = useCallback(async (file) => {
+        try {
+            setIsImporting(true);
+            
+            // 動的インポートでファイルユーティリティを読み込み
+            const { importContactsFromFile, validateImportData, getFileType } = await import('./utils/csvUtils');
+            
+            const fileType = getFileType(file);
+            const importedContacts = await importContactsFromFile(file);
+            const validation = validateImportData(importedContacts, contacts);
+            
+            setImportData(importedContacts);
+            setValidationResult(validation);
+            setShowImportModal(true);
+        } catch (error) {
+            console.error('File Import error:', error);
+            setError(`ファイルインポートに失敗しました: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+        }
+    }, [contacts, setError]);
+
+    // インポート確認処理
+    const handleConfirmImport = useCallback(async () => {
+        if (!validationResult?.validContacts) return;
+        
+        try {
+            setIsImporting(true);
+            
+            // 各連絡先を追加
+            for (const contact of validationResult.validContacts) {
+                await handleAddContact(contact);
+            }
+            
+            setShowImportModal(false);
+            setImportData(null);
+            setValidationResult(null);
+            
+            // 成功メッセージ
+            setError(`${validationResult.validContacts.length}件の連絡先をインポートしました`);
+            setTimeout(() => clearAllErrors(), 3000);
+        } catch (error) {
+            console.error('Import confirmation error:', error);
+            setError(`インポート中にエラーが発生しました: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+        }
+    }, [validationResult, handleAddContact, setError, clearAllErrors]);
+
+    // インポートモーダルを閉じる
+    const closeImportModal = useCallback(() => {
+        setShowImportModal(false);
+        setImportData(null);
+        setValidationResult(null);
+    }, []);
 
     // 認証が準備できていない場合のローディング画面
     if (!isAuthReady) {
@@ -156,10 +288,14 @@ function App() {
             />
 
             {(error || profileError || settingsError) && (
-                <div className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded-md relative mb-4 shadow-md" role="alert">
+                <div className={`${
+                    error?.includes('エクスポートしました') || error?.includes('インポートしました')
+                        ? 'bg-green-100 dark:bg-green-900 border-green-400 dark:border-green-700 text-green-700 dark:text-green-200' 
+                        : 'bg-red-100 dark:bg-red-900 border-red-400 dark:border-red-700 text-red-700 dark:text-red-200'
+                } border px-4 py-3 rounded-md relative mb-4 shadow-md`} role="alert">
                     {error || profileError || settingsError}
                     <button
-                        onClick={() => { setError(null); setProfileError(null); setSettingsError(null); }}
+                        onClick={clearAllErrors}
                         className="absolute top-0 bottom-0 right-0 px-4 py-3"
                     >
                         ×
@@ -200,11 +336,15 @@ function App() {
                         setSelectedGroup={setSelectedGroup}
                         uniqueGroups={uniqueGroups}
                         onAddClick={openAddModal}
+                        onExportFile={handleExportFile}
+                        onImportFile={handleImportFile}
+                        isExporting={isExporting}
+                        isImporting={isImporting}
                     />
 
                     <ContactList
                         contacts={filteredContacts}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isImporting}
                         onEdit={openEditModal}
                         onDelete={handleDeleteContact}
                         onAddClick={openAddModal}
@@ -222,9 +362,19 @@ function App() {
             {showModal && hasGroupAccess && (
                 <ContactModal
                     contact={currentContact}
-                    onClose={() => { setShowModal(false); setCurrentContact(null); }}
+                    onClose={closeModal}
                     onSave={handleSave}
                     uniqueGroups={uniqueGroups.filter(g => g !== "")}
+                />
+            )}
+
+            {showImportModal && (
+                <CSVImportModal
+                    isOpen={showImportModal}
+                    onClose={closeImportModal}
+                    onConfirm={handleConfirmImport}
+                    importData={importData}
+                    validationResult={validationResult}
                 />
             )}
         </div>
